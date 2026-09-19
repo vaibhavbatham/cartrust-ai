@@ -20,6 +20,13 @@ class Vehicle(Base):
     transmission = Column(String(50), nullable=False)
     current_odometer = Column(Integer, default=0, nullable=False)
     ownership_status = Column(String(50), default='FIRST', nullable=True)
+    registration_year = Column(Integer, nullable=True)
+    mileage_efficiency = Column(String(50), nullable=True)
+    engine_details = Column(String(200), nullable=True)
+    price = Column(Float, nullable=True)
+    location = Column(String(200), nullable=True)
+    image_url = Column(Text, nullable=True)
+    rc_number = Column(String(100), nullable=True)
     golden_vehicle_id = Column(String(50), index=True, nullable=True)
     created_by_id = Column(String(36), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 

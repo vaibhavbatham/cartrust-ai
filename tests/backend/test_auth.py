@@ -41,3 +41,31 @@ def test_token_refresh_rotation():
     # Reusing old refresh token must fail (Token rotation & revocation)
     old_res = client.post('/api/v1/auth/refresh', json={'refresh_token': refresh_token})
     assert old_res.status_code == 401
+
+def test_google_login_new_user():
+    res = client.post('/api/v1/auth/google', json={
+        'email': 'newgoogleuser@example.demo',
+        'first_name': 'Amit',
+        'last_name': 'Patel',
+        'google_id': 'goog_sub_987654321',
+        'avatar_url': 'https://example.com/avatar.jpg'
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert 'access_token' in data
+    assert 'refresh_token' in data
+    assert data['email'] == 'newgoogleuser@example.demo'
+    assert 'CUSTOMER' in data['roles']
+    assert data['email_verified'] is True
+
+def test_google_login_existing_user():
+    res = client.post('/api/v1/auth/google', json={
+        'email': 'customer@cartrust.demo',
+        'first_name': 'Rahul',
+        'last_name': 'Sharma',
+        'google_id': 'goog_sub_123456789'
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data['email'] == 'customer@cartrust.demo'
+    assert 'access_token' in data

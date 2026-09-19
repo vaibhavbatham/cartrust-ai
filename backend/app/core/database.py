@@ -1,3 +1,4 @@
+import os
 import datetime
 import uuid
 from typing import Generator
@@ -7,11 +8,18 @@ from app.core.config import settings
 
 # Handle SQLite vs PostgreSQL configuration
 connect_args = {}
-if settings.DATABASE_URL.startswith('sqlite'):
+db_url = settings.DATABASE_URL
+if db_url.startswith('sqlite:///./'):
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    rel_path = db_url.replace('sqlite:///./', '')
+    abs_db_path = os.path.join(project_root, rel_path).replace('\\', '/')
+    db_url = f'sqlite:///{abs_db_path}'
+
+if db_url.startswith('sqlite'):
     connect_args = {'check_same_thread': False}
 
 engine = create_engine(
-    settings.DATABASE_URL,
+    db_url,
     connect_args=connect_args,
     echo=False,
     pool_pre_ping=True

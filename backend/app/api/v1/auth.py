@@ -2,7 +2,7 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.schemas.auth import UserRegister, UserLogin, Token, TokenRefresh, VerifyEmail, ForgotPassword, ResetPassword, PhoneOTPRequest, PhoneOTPVerify
+from app.schemas.auth import UserRegister, UserLogin, GoogleLoginRequest, Token, TokenRefresh, VerifyEmail, ForgotPassword, ResetPassword, PhoneOTPRequest, PhoneOTPVerify
 from app.schemas.user import UserRead, ProfileUpdate, ProfileRead
 from app.services.auth_service import AuthService
 from app.api.deps import get_current_user
@@ -37,6 +37,13 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=401, detail='Incorrect email or password')
     return AuthService.create_user_tokens(db, user)
+
+@router.post('/google', response_model=Token)
+def google_login(data: GoogleLoginRequest, db: Session = Depends(get_db)):
+    try:
+        return AuthService.google_authenticate(db, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post('/logout')
 def logout(current_user: User = Depends(get_current_user)):

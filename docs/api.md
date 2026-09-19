@@ -8,6 +8,7 @@ All endpoints reside under `/api/v1`. Interactive Swagger documentation is acces
 |---|---|---|---|
 | `POST` | `/auth/register` | Register new user account | No |
 | `POST` | `/auth/login` | Authenticate and obtain access + refresh tokens | No |
+| `POST` | `/auth/google` | Authenticate or register with Google ID token / credentials | No |
 | `POST` | `/auth/refresh` | Rotate access & refresh tokens | No |
 | `POST` | `/auth/verify-email` | Verify email with security token | No |
 | `POST` | `/auth/phone/otp-request` | Request mobile verification OTP (Dev: `123456`) | No |
@@ -19,9 +20,10 @@ All endpoints reside under `/api/v1`. Interactive Swagger documentation is acces
 
 | Method | Endpoint | Description | Auth Required |
 |---|---|---|---|
-| `GET` | `/vehicles` | List or search vehicles by VIN/registration | Optional |
-| `POST` | `/vehicles` | Onboard a new vehicle | Yes |
-| `GET` | `/vehicles/{id}` | Retrieve vehicle profile & coverage metrics | Optional |
+| `GET` | `/vehicles` | List or search vehicles by registration plate, VIN, make, model | Optional |
+| `POST` | `/vehicles` | Onboard a new vehicle (with Indian plate format & duplicate prevention) | Yes |
+| `GET` | `/vehicles/validate-plate/{plate}` | Validate Indian registration plate format, normalize, check existence | Optional |
+| `GET` | `/vehicles/{id}` | Retrieve vehicle profile (by ID, VIN, or normalized plate) | Optional |
 | `GET` | `/vehicles/{id}/timeline` | Retrieve chronological vehicle timeline | Optional |
 | `GET` | `/vehicles/{id}/odometer` | Analyze odometer consistency & detect rollbacks | Optional |
 | `GET` | `/vehicles/{id}/maintenance` | Compare history against manufacturer schedule | Optional |

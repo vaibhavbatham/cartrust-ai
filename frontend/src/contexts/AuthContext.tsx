@@ -18,11 +18,27 @@ export interface User {
   };
 }
 
+export const formatErrorMessage = (err: any): string => {
+  if (!err) return 'An unexpected error occurred.';
+  const detail = err.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d: any) => d.msg || (typeof d === 'string' ? d : JSON.stringify(d))).join(', ');
+  }
+  if (detail && typeof detail === 'object') {
+    return Object.entries(detail).map(([k, v]) => `${k}: ${v}`).join(', ');
+  }
+  if (err.message) return err.message;
+  return 'Request failed. Please try again.';
+};
+
 interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
   login: (email: string, pass: string) => Promise<void>;
+  loginWithGoogle: (payload: any) => Promise<void>;
+  register: (formData: any) => Promise<void>;
   logout: () => void;
   setUser: (u: User | null) => void;
   hasRole: (role: string) => boolean;
@@ -48,6 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
         setToken(null);
         localStorage.removeItem('cartrust_token');
+        localStorage.removeItem('cartrust_refresh_token');
       } finally {
         setLoading(false);
       }
@@ -66,11 +83,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email: data.email,
       first_name: data.email.split('@')[0],
       last_name: '',
-      roles: data.roles,
+      roles: data.roles || ['CUSTOMER'],
       email_verified: data.email_verified,
       phone_verified: data.phone_verified,
       onboarding_completed: data.onboarding_completed
     });
+  };
+
+  const loginWithGoogle = async (payload: any) => {
+    const res = await api.post('/auth/google', payload);
+    const data = res.data;
+    localStorage.setItem('cartrust_token', data.access_token);
+    localStorage.setItem('cartrust_refresh_token', data.refresh_token);
+    setToken(data.access_token);
+    setUser({
+      id: data.user_id,
+      email: data.email,
+      first_name: payload.first_name || data.email.split('@')[0],
+      last_name: payload.last_name || '',
+      roles: data.roles || ['CUSTOMER'],
+      email_verified: data.email_verified,
+      phone_verified: data.phone_verified,
+      onboarding_completed: data.onboarding_completed
+    });
+  };
+
+  const register = async (formData: any) => {
+    await api.post('/auth/register', formData);
+    await login(formData.email, formData.password);
   };
 
   const logout = () => {
@@ -81,12 +121,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const hasRole = (role: string) => {
-    if (!user) return false;
+    if (!user || !user.roles) return false;
     return user.roles.includes(role.toUpperCase()) || user.roles.includes('ADMIN');
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, setUser, hasRole }}>
+    <AuthContext.Provider value={{ user, token, loading, login, loginWithGoogle, register, logout, setUser, hasRole }}>
       {children}
     </AuthContext.Provider>
   );

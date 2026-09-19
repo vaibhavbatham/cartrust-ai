@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, formatErrorMessage } from '../contexts/AuthContext';
+import { GoogleSignInButton } from '../components/GoogleSignInButton';
 import { Shield, Lock, Mail, ArrowRight } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
@@ -19,7 +20,8 @@ export const LoginPage: React.FC = () => {
       await login(email, password);
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to login. Please check your credentials.');
+      const msg = formatErrorMessage(err);
+      setError(typeof msg === 'string' ? msg : 'Failed to login. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -37,11 +39,25 @@ export const LoginPage: React.FC = () => {
           <div className="p-2 rounded-lg bg-sky-600 text-white">
             <Shield className="w-5 h-5" />
           </div>
-          <h2 className="text-xl font-bold text-white">Sign In to CarTrust AI</h2>
+          <div>
+            <h2 className="text-xl font-bold text-white">Sign In to CarTrust AI</h2>
+            <p className="text-xs text-slate-400">Used-Car Intelligence Platform</p>
+          </div>
+        </div>
+
+        {/* Google Sign-In */}
+        <div className="mb-5">
+          <GoogleSignInButton label="Sign in with Google" onError={(msg) => setError(msg)} />
+        </div>
+
+        <div className="relative flex py-2 items-center mb-5">
+          <div className="flex-grow border-t border-slate-800"></div>
+          <span className="flex-shrink mx-3 text-xs text-slate-500 uppercase tracking-wider font-semibold">Or with password</span>
+          <div className="flex-grow border-t border-slate-800"></div>
         </div>
 
         {error && (
-          <div className="p-3 mb-4 text-xs font-semibold rounded-lg bg-rose-950 border border-rose-800 text-rose-300">
+          <div className="p-3 mb-4 text-xs font-semibold rounded-lg bg-rose-950/80 border border-rose-800 text-rose-300">
             {error}
           </div>
         )}
@@ -80,7 +96,7 @@ export const LoginPage: React.FC = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-sky-600 hover:bg-sky-500 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
+            className="w-full bg-sky-600 hover:bg-sky-500 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {loading ? 'Authenticating...' : 'Sign In'}
             <ArrowRight className="w-4 h-4" />
@@ -116,7 +132,7 @@ export const LoginPage: React.FC = () => {
 
         <div className="mt-6 text-center text-xs text-slate-500">
           Need an account?{' '}
-          <Link to="/register" className="text-sky-400 hover:underline">
+          <Link to="/register" className="text-sky-400 hover:underline font-medium">
             Register here
           </Link>
         </div>

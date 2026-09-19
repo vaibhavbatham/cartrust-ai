@@ -262,6 +262,59 @@ def seed_demo_data():
             status='OPEN'
         ))
 
+    # DEMO VEHICLE 3: Sparse History & Major Collision (DEMO-VIN-CR-2018-003)
+    v3 = db.query(Vehicle).filter(Vehicle.vin == 'DEMO-VIN-CR-2018-003').first()
+    if not v3:
+        v3 = Vehicle(
+            vin='DEMO-VIN-CR-2018-003',
+            registration_number='HR26-CR-9900',
+            make='Hyundai',
+            model='Creta',
+            variant='SX Dual Tone',
+            year=2018,
+            fuel_type='Diesel',
+            transmission='Automatic',
+            current_odometer=86400,
+            ownership_status='THIRD',
+            golden_vehicle_id='GOLDEN-DEMO-VIN-CR-2018-003'
+        )
+        db.add(v3)
+        db.flush()
+
+        # Sparse odometer readings with 3-year gap
+        db.add(OdometerReading(vehicle_id=v3.id, reading=12000, reading_date=datetime.date(2019, 2, 10), source='AUTHORIZED_SERVICE'))
+        db.add(OdometerReading(vehicle_id=v3.id, reading=86400, reading_date=datetime.date(2025, 11, 14), source='DEALER_LISTING'))
+
+        # Major structural collision claim
+        db.add(InsuranceEvent(
+            vehicle_id=v3.id,
+            provider_id=prov.id,
+            claim_number='CLM-2021-CR-4402',
+            claim_date=datetime.date(2021, 11, 12),
+            claim_type='COLLISION',
+            damage_area='Front Subframe & Radiator Core Support',
+            severity='MAJOR',
+            claim_amount=185000.0,
+            repair_status='REPAIRED_AFTERMARKET'
+        ))
+
+        db.add(Alert(
+            vehicle_id=v3.id,
+            alert_type='STRUCTURAL_DAMAGE',
+            title='Structural Damage Record Found',
+            message='Insurance claim indicates major collision impacting front subframe and core radiator supports on 2021-11-12.',
+            severity='CRITICAL',
+            is_resolved=False
+        ))
+        db.add(Alert(
+            vehicle_id=v3.id,
+            alert_type='MAINTENANCE_GAP',
+            title='Severe Maintenance Record Gap',
+            message='No verified service records found between 2019 and 2025 (>48 months unrecorded).',
+            severity='HIGH',
+            is_resolved=False
+        ))
+
     rahul = db.query(User).filter(User.email == 'customer@cartrust.demo').first()
     if rahul and v1:
         own = db.query(VehicleOwnership).filter(VehicleOwnership.user_id == rahul.id, VehicleOwnership.vehicle_id == v1.id).first()

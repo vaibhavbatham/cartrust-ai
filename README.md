@@ -1,7 +1,7 @@
 # CarTrust AI — Used-Car Intelligence Platform
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/tests-16%20passed-success.svg)]()
+[![Tests](https://img.shields.io/badge/tests-21%20passed-success.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.14-blue.svg)]()
 [![React](https://img.shields.io/badge/react-18.3.1-blue.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
@@ -92,6 +92,9 @@ flowchart TB
 
 | Feature Module | Capabilities |
 |---|---|
+| **Indian Number Plate Search & Validation** | Full support for Indian vehicle plates (`MP04AB1234`, `DL01AB1234`, `MH12CD5678`, `22BH1234AA`). Automatic normalization of lowercase, spaces, and hyphens. Live format validation and duplicate registration prevention. |
+| **Google Authentication & Secure Onboarding** | Sign in / register seamlessly with Google accounts or email/password. Zero-blank-screen robust error handling with React ErrorBoundary. |
+| **Comprehensive Vehicle Onboarding** | Complete multi-step vehicle registration form (Registration plate, make, model, variant, manufacturing year, registration year, fuel, transmission, efficiency, odometer, engine, price, location, RC details). |
 | **Vehicle Intelligence & Trust Score** | Multi-factor composite scoring (Odometer Integrity, Maintenance Consistency, Damage History, Evidence Confidence). |
 | **Odometer Rollback Anomaly Engine** | Detects mileage drops, flags impossible km/day velocities, assigns statistical severity ratings. |
 | **Maintenance Gap Analysis** | Compares service history against manufacturer intervals (oil, brakes, timing belts, spark plugs). |
@@ -154,10 +157,12 @@ The platform is pre-seeded with canonical accounts representing key personas:
 | **Platform Administrator** | `admin@cartrust.demo` | `DemoPassword123!` | `ADMIN` |
 
 ### Canonical Demo Vehicles
+Searchable directly by Indian registration number (e.g. `mp 04 ab 1234` or `MP04AB1234`):
 
-- **`DEMO-VIN-HC-2019-001` (2019 Honda Civic)**: Clean vehicle, high Trust Score (94/100), full service history, verified invoices.
-- **`DEMO-VIN-SW-2020-002` (2020 Maruti Suzuki Swift)**: **Odometer Rollback Demo** (-13,500 km rollback detected with high severity alert).
-- **`DEMO-VIN-CR-2018-003` (2018 Hyundai Creta)**: **Sparse History & Structural Damage Demo** (3-year service gap, major collision claim, high ML risk).
+- **`MP04AB1234` / `DEMO-VIN-HC-2019-001` (2019 Honda Civic)**: Clean vehicle, high Trust Score (94/100), full service history, verified invoices. Location: Bhopal, MP.
+- **`DL01XY5678` / `DEMO-VIN-SW-2020-002` (2020 Maruti Suzuki Swift)**: **Odometer Rollback Demo** (-13,500 km rollback detected with high severity alert). Location: New Delhi.
+- **`HR26CR9900` / `DEMO-VIN-CR-2018-003` (2018 Hyundai Creta)**: **Sparse History & Structural Damage Demo** (3-year service gap, major collision claim, high ML risk). Location: Gurugram, HR.
+- **`KA05MN9988` (2022 Tata Motors Nexon)**: Newly onboarded vehicle with complete RC and milestone records. Location: Bengaluru, KA.
 
 ---
 

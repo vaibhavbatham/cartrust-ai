@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Shield, Car, Search, User, LogOut, CheckCircle2 } from 'lucide-react';
+import { Shield, Car, Search, User, LogOut, CheckCircle2, Plus } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -20,10 +20,14 @@ export const Navbar: React.FC = () => {
           </div>
         </Link>
 
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-5">
           <Link to="/vehicles" className="text-sm font-medium text-slate-300 hover:text-white flex items-center gap-1.5 transition-colors">
             <Search className="w-4 h-4 text-sky-400" />
-            Search Vehicles
+            Search
+          </Link>
+          <Link to="/vehicles/add" className="text-sm font-semibold text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors">
+            <Plus className="w-4 h-4" />
+            Add Vehicle
           </Link>
           <Link to="/compare" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">
             Compare

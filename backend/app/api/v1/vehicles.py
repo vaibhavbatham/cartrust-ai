@@ -2,7 +2,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.schemas.vehicle import VehicleCreate, VehicleRead, VehicleUpdate
+from app.schemas.vehicle import VehicleCreate, VehicleRead, VehicleUpdate, VehiclePlateValidation
 from app.schemas.event import TimelineEventRead, InsuranceEventRead, InspectionEventRead, OdometerReadingRead
 from app.schemas.intelligence import VehicleIntelligenceSummary, OdometerAnalysis, MaintenanceScheduleItem
 from app.schemas.evidence import EvidenceRead
@@ -20,16 +20,17 @@ from app.models.evidence import Evidence
 router = APIRouter(prefix='/vehicles', tags=['Vehicles'])
 
 @router.post('', response_model=VehicleRead, status_code=status.HTTP_201_CREATED)
-def create_vehicle(data: VehicleCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def create_vehicle(data: VehicleCreate, db: Session = Depends(get_db), current_user: Optional[User] = Depends(get_optional_user)):
     try:
-        v = VehicleService.create_vehicle(db, data, user_id=current_user.id)
+        user_id = current_user.id if current_user else None
+        v = VehicleService.create_vehicle(db, data, user_id=user_id)
         return VehicleRead.from_orm(v)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get('', response_model=List[VehicleRead])
 def list_vehicles(query: Optional[str] = None, db: Session = Depends(get_db), current_user: Optional[User] = Depends(get_optional_user)):
-    if query:
+    if query and query.strip():
         v = VehicleService.lookup_vehicle(db, query)
         if not v:
             return []
@@ -39,24 +40,24 @@ def list_vehicles(query: Optional[str] = None, db: Session = Depends(get_db), cu
         if user_v:
             return [VehicleRead(**item) for item in user_v]
     # Default list of active vehicles
-    all_v = db.query(Vehicle).limit(20).all()
+    all_v = db.query(Vehicle).order_by(Vehicle.created_at.desc()).limit(30).all()
     return [VehicleRead.from_orm(v) for v in all_v]
+
+@router.get('/validate-plate/{plate}', response_model=VehiclePlateValidation)
+def validate_plate(plate: str, db: Session = Depends(get_db)):
+    res = VehicleService.validate_plate_query(db, plate)
+    return VehiclePlateValidation(**res)
 
 @router.get('/{id}', response_model=VehicleRead)
 def get_vehicle(id: str, db: Session = Depends(get_db)):
-    v = db.query(Vehicle).filter(Vehicle.id == id).first()
-    if not v:
-        # Check by VIN
-        v = db.query(Vehicle).filter(Vehicle.vin == id.upper()).first()
+    v = VehicleService.lookup_vehicle(db, id)
     if not v:
         raise HTTPException(status_code=404, detail='No historical records are currently available for this vehicle.')
     return VehicleRead.from_orm(v)
 
 @router.get('/{id}/timeline', response_model=List[TimelineEventRead])
 def get_timeline(id: str, db: Session = Depends(get_db)):
-    v = db.query(Vehicle).filter(Vehicle.id == id).first()
-    if not v:
-        v = db.query(Vehicle).filter(Vehicle.vin == id.upper()).first()
+    v = VehicleService.lookup_vehicle(db, id)
     if not v:
         raise HTTPException(status_code=404, detail='Vehicle not found')
     events = TimelineService.get_vehicle_timeline(db, v.id)
@@ -64,9 +65,7 @@ def get_timeline(id: str, db: Session = Depends(get_db)):
 
 @router.get('/{id}/maintenance', response_model=List[MaintenanceScheduleItem])
 def get_maintenance(id: str, db: Session = Depends(get_db)):
-    v = db.query(Vehicle).filter(Vehicle.id == id).first()
-    if not v:
-        v = db.query(Vehicle).filter(Vehicle.vin == id.upper()).first()
+    v = VehicleService.lookup_vehicle(db, id)
     if not v:
         raise HTTPException(status_code=404, detail='Vehicle not found')
     items = MaintenanceService.get_maintenance_intelligence(db, v.id)
@@ -74,9 +73,7 @@ def get_maintenance(id: str, db: Session = Depends(get_db)):
 
 @router.get('/{id}/claims', response_model=List[InsuranceEventRead])
 def get_claims(id: str, db: Session = Depends(get_db)):
-    v = db.query(Vehicle).filter(Vehicle.id == id).first()
-    if not v:
-        v = db.query(Vehicle).filter(Vehicle.vin == id.upper()).first()
+    v = VehicleService.lookup_vehicle(db, id)
     if not v:
         raise HTTPException(status_code=404, detail='Vehicle not found')
     claims = db.query(InsuranceEvent).filter(InsuranceEvent.vehicle_id == v.id).all()
@@ -84,9 +81,7 @@ def get_claims(id: str, db: Session = Depends(get_db)):
 
 @router.get('/{id}/inspections', response_model=List[InspectionEventRead])
 def get_inspections(id: str, db: Session = Depends(get_db)):
-    v = db.query(Vehicle).filter(Vehicle.id == id).first()
-    if not v:
-        v = db.query(Vehicle).filter(Vehicle.vin == id.upper()).first()
+    v = VehicleService.lookup_vehicle(db, id)
     if not v:
         raise HTTPException(status_code=404, detail='Vehicle not found')
     insps = db.query(InspectionEvent).filter(InspectionEvent.vehicle_id == v.id).all()
@@ -94,9 +89,7 @@ def get_inspections(id: str, db: Session = Depends(get_db)):
 
 @router.get('/{id}/odometer', response_model=OdometerAnalysis)
 def get_odometer(id: str, db: Session = Depends(get_db)):
-    v = db.query(Vehicle).filter(Vehicle.id == id).first()
-    if not v:
-        v = db.query(Vehicle).filter(Vehicle.vin == id.upper()).first()
+    v = VehicleService.lookup_vehicle(db, id)
     if not v:
         raise HTTPException(status_code=404, detail='Vehicle not found')
     analysis = OdometerService.analyze_odometer(db, v.id)
@@ -104,9 +97,7 @@ def get_odometer(id: str, db: Session = Depends(get_db)):
 
 @router.get('/{id}/evidence', response_model=List[EvidenceRead])
 def get_evidence(id: str, db: Session = Depends(get_db)):
-    v = db.query(Vehicle).filter(Vehicle.id == id).first()
-    if not v:
-        v = db.query(Vehicle).filter(Vehicle.vin == id.upper()).first()
+    v = VehicleService.lookup_vehicle(db, id)
     if not v:
         raise HTTPException(status_code=404, detail='Vehicle not found')
     evs = db.query(Evidence).filter(Evidence.vehicle_id == v.id).all()
@@ -114,9 +105,7 @@ def get_evidence(id: str, db: Session = Depends(get_db)):
 
 @router.get('/{id}/intelligence', response_model=VehicleIntelligenceSummary)
 def get_intelligence(id: str, db: Session = Depends(get_db)):
-    v = db.query(Vehicle).filter(Vehicle.id == id).first()
-    if not v:
-        v = db.query(Vehicle).filter(Vehicle.vin == id.upper()).first()
+    v = VehicleService.lookup_vehicle(db, id)
     if not v:
         raise HTTPException(status_code=404, detail='Vehicle not found')
     summary = IntelligenceSummaryService.get_summary(db, v.id)

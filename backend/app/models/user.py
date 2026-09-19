@@ -20,6 +20,8 @@ class User(Base):
     phone_verified = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     is_superuser = Column(Boolean, default=False, nullable=False)
+    google_id = Column(String(100), unique=True, index=True, nullable=True)
+    avatar_url = Column(String(500), nullable=True)
     verification_token = Column(String(255), nullable=True)
     reset_token = Column(String(255), nullable=True)
 

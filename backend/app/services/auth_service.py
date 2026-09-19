@@ -156,6 +156,103 @@ class AuthService:
         return AuthService.create_user_tokens(db, user)
 
     @staticmethod
+    def google_authenticate(db: Session, data: Any) -> Dict[str, Any]:
+        email = None
+        first_name = "Google"
+        last_name = "User"
+        google_id = None
+        avatar_url = None
+
+        if hasattr(data, 'credential') and data.credential:
+            try:
+                import json
+                import base64
+                parts = data.credential.split('.')
+                if len(parts) >= 2:
+                    padded = parts[1] + '=' * (4 - len(parts[1]) % 4)
+                    payload_json = base64.urlsafe_b64decode(padded.encode('utf-8')).decode('utf-8')
+                    payload = json.loads(payload_json)
+                    email = payload.get('email')
+                    first_name = payload.get('given_name') or payload.get('name', 'Google').split(' ')[0]
+                    last_name = payload.get('family_name') or ''
+                    google_id = payload.get('sub')
+                    avatar_url = payload.get('picture')
+            except Exception:
+                pass
+
+        if not email and hasattr(data, 'email') and data.email:
+            email = str(data.email).lower().strip()
+            first_name = data.first_name or first_name
+            last_name = data.last_name or last_name
+            google_id = data.google_id or f"google_{uuid.uuid4().hex[:12]}"
+            avatar_url = data.avatar_url
+
+        if not email:
+            raise ValueError("Could not extract a valid email address from Google authentication data.")
+
+        email = email.lower().strip()
+        user = db.query(User).filter(User.email == email).first()
+
+        if not user:
+            import secrets
+            random_pw = secrets.token_urlsafe(32)
+            user = User(
+                email=email,
+                hashed_password=hash_password(random_pw),
+                first_name=first_name,
+                last_name=last_name,
+                email_verified=True,
+                phone_verified=False,
+                is_active=True,
+                google_id=google_id,
+                avatar_url=avatar_url
+            )
+            db.add(user)
+            db.flush()
+
+            customer_role = db.query(Role).filter(Role.name == 'CUSTOMER').first()
+            if not customer_role:
+                customer_role = Role(name='CUSTOMER', description='Standard customer role')
+                db.add(customer_role)
+                db.flush()
+
+            db.add(UserRole(user_id=user.id, role_id=customer_role.id))
+
+            profile = Profile(
+                user_id=user.id,
+                full_name=f"{first_name} {last_name}".strip(),
+                country='India',
+                preferred_language='English'
+            )
+            db.add(profile)
+
+            db.add(AuditLog(
+                actor_id=user.id,
+                actor_email=user.email,
+                action='GOOGLE_USER_REGISTER',
+                resource_type='USER',
+                resource_id=user.id
+            ))
+            db.commit()
+            db.refresh(user)
+        else:
+            if google_id and not user.google_id:
+                user.google_id = google_id
+            if avatar_url and not user.avatar_url:
+                user.avatar_url = avatar_url
+            user.email_verified = True
+            db.add(AuditLog(
+                actor_id=user.id,
+                actor_email=user.email,
+                action='GOOGLE_LOGIN_SUCCESS',
+                resource_type='AUTH',
+                resource_id=user.id
+            ))
+            db.commit()
+
+        return AuthService.create_user_tokens(db, user)
+
+    @staticmethod
     def update_profile(db: Session, user_id: str, profile_in: ProfileUpdate) -> Profile:
         profile = db.query(Profile).filter(Profile.user_id == user_id).first()
         if not profile:
