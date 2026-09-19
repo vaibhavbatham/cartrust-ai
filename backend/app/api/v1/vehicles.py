@@ -40,7 +40,7 @@ def list_vehicles(query: Optional[str] = None, db: Session = Depends(get_db), cu
         if user_v:
             return [VehicleRead(**item) for item in user_v]
     # Default list of active vehicles
-    all_v = db.query(Vehicle).order_by(Vehicle.created_at.desc()).limit(30).all()
+    all_v = db.query(Vehicle).order_by(Vehicle.year.desc()).limit(50).all()
     return [VehicleRead.from_orm(v) for v in all_v]
 
 @router.get('/validate-plate/{plate}', response_model=VehiclePlateValidation)

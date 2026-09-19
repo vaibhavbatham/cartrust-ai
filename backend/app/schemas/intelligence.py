@@ -63,10 +63,14 @@ class VehicleCompareResponse(BaseModel):
 class AIQueryRequest(BaseModel):
     vehicle_id: Optional[str] = None
     query: str
+    conversation_history: Optional[List[Dict[str, Any]]] = []
 
 class AIQueryResponse(BaseModel):
     answer: str
     grounded_evidence: List[Dict[str, Any]] = []
+    actions: List[Dict[str, Any]] = []
+    suggested_questions: List[str] = []
+    vehicle_context: Optional[Dict[str, Any]] = None
     uncertainty_level: str # 'KNOWN', 'REPORTED', 'INFERRED', 'UNKNOWN'
     disclaimer: str
 

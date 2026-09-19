@@ -245,6 +245,7 @@ class VehicleService:
                 'verified_evidence_count': verified_count,
                 'evidence_count': ev_count,
                 'open_alerts_count': alerts_count,
-                'updated_at': v.updated_at
+                'created_at': getattr(v, 'created_at', None) or datetime.datetime.utcnow(),
+                'updated_at': getattr(v, 'updated_at', None) or datetime.datetime.utcnow()
             })
         return results

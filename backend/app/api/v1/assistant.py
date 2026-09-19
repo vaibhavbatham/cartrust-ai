@@ -8,5 +8,5 @@ router = APIRouter(prefix='/assistant', tags=['AI Assistant'])
 
 @router.post('/query', response_model=AIQueryResponse)
 def query_assistant(data: AIQueryRequest, db: Session = Depends(get_db)):
-    res = RAGService.answer_query(db, data.vehicle_id, data.query)
+    res = RAGService.answer_query(db, data.vehicle_id, data.query, data.conversation_history or [])
     return AIQueryResponse(**res)

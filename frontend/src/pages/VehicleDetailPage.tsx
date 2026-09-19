@@ -427,11 +427,11 @@ export const VehicleDetailPage: React.FC = () => {
                 Download PDF Report
               </a>
               <Link
-                to="/assistant"
+                to={`/assistant?vehicle=${encodeURIComponent(vehicle.registration_number || vehicle.vin || vehicle.id)}`}
                 className="bg-sky-600 hover:bg-sky-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-lg shadow-sky-950 transition-colors"
               >
                 <MessageSquare className="w-4 h-4" />
-                Ask Assistant
+                Ask AI Assistant
               </Link>
             </div>
           </div>

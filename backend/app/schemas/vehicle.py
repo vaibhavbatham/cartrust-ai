@@ -75,8 +75,8 @@ class VehicleUpdate(BaseModel):
 class VehicleRead(VehicleBase):
     id: str
     golden_vehicle_id: Optional[str] = None
-    created_at: datetime.datetime
-    updated_at: datetime.datetime
+    created_at: Optional[datetime.datetime] = None
+    updated_at: Optional[datetime.datetime] = None
     history_coverage_pct: Optional[float] = 0.0
     verified_evidence_count: Optional[int] = 0
     open_alerts_count: Optional[int] = 0
