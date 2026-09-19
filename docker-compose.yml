@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cartrust-postgres
+    environment:
+      POSTGRES_DB: cartrust_db
+      POSTGRES_USER: cartrust
+      POSTGRES_PASSWORD: cartrust_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cartrust -d cartrust_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cartrust-redis
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: cartrust-backend
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://cartrust:cartrust_password@postgres:5432/cartrust_db
+      - REDIS_URL=redis://redis:6379/0
+      - APP_ENV=production
+      - SECRET_KEY=cartrust-super-secret-key-change-in-production-min32chars
+      - MOCK_PROVIDER_URL=http://mock-provider:8001
+      - FRONTEND_URL=http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - uploads_data:/app/uploads
+
+  mock-provider:
+    build:
+      context: .
+      dockerfile: mock-providers/Dockerfile
+    container_name: cartrust-mock-provider
+    ports:
+      - "8001:8001"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: cartrust-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: cartrust-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  pgdata:
+  uploads_data:

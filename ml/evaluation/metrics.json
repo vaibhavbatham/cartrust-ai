@@ -1,0 +1,19 @@
+{
+  "training_date": "2026-09-19T09:18:23.500033",
+  "model_a": {
+    "name": "MaintenanceRiskEstimator",
+    "algorithm": "RandomForestClassifier",
+    "version": "1.0.0",
+    "n_samples": 2500,
+    "precision": 0.9817,
+    "recall": 0.9973,
+    "f1_score": 0.9895,
+    "roc_auc": 0.9985
+  },
+  "model_b": {
+    "name": "RecordAnomalyDetector",
+    "algorithm": "IsolationForest",
+    "version": "1.0.0",
+    "contamination": 0.05
+  }
+}
