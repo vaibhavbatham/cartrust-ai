@@ -1,7 +1,7 @@
 # CarTrust AI — Used-Car Intelligence Platform
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/tests-21%20passed-success.svg)]()
+[![Tests](https://img.shields.io/badge/tests-39%20passed-success.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.14-blue.svg)]()
 [![React](https://img.shields.io/badge/react-18.3.1-blue.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
