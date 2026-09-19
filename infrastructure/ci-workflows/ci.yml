@@ -1,0 +1,68 @@
+name: CarTrust AI CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  backend-and-pipelines:
+    name: Backend API & Data Pipeline Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest httpx scikit-learn pandas numpy
+
+      - name: Initialize Database & Seed Demo Data
+        run: |
+          python -m alembic -c backend/alembic.ini upgrade head
+          python scripts/seed_demo.py
+
+      - name: Run Pytest Test Suite
+        env:
+          ENVIRONMENT: testing
+          DATABASE_URL: sqlite:///./cartrust.db
+          SECRET_KEY: ci-secret-key-must-be-long-enough-32bytes!
+        run: |
+          pytest tests -v --durations=10
+
+      - name: Verify Data Pipeline Transformations
+        run: |
+          python scripts/generate_synthetic_data.py
+          python pipelines/transformations/run_pipeline.py
+          python pipelines/transformations/create_powerbi_views.py
+
+  frontend-build:
+    name: Frontend TypeScript & Production Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci || npm install
+
+      - name: Build React SPA
+        working-directory: ./frontend
+        run: npm run build
