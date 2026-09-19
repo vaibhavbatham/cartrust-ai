@@ -4,8 +4,9 @@
 [![Tests](https://img.shields.io/badge/tests-39%20passed-success.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.14-blue.svg)]()
 [![React](https://img.shields.io/badge/react-18.3.1-blue.svg)]()
-[![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![GitHub Pages](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-success?style=for-the-badge&logo=github)](https://vaibhavbatham.github.io/cartrust-ai/)
 
+> **Live Demo**: [https://vaibhavbatham.github.io/cartrust-ai/](https://vaibhavbatham.github.io/cartrust-ai/)  
 > **CarTrust AI** is a portfolio-grade, production-style used-car intelligence platform engineered to eliminate information asymmetry in secondary automotive markets. Built upon strict data provenance, cryptographic evidence verification, medallion data pipelines, machine learning risk engines, and a zero-hallucination grounded AI assistant.
 
 ---
