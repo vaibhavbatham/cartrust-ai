@@ -151,7 +151,25 @@ export const AddVehiclePage: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const res = await api.post('/vehicles', formData);
+      const payload: any = {
+        ...formData,
+        registration_number: plateCheck.normalized || formData.registration_number.trim(),
+        vin: formData.vin?.trim() ? formData.vin.trim().toUpperCase() : undefined,
+        variant: formData.variant?.trim() || undefined,
+        mileage_efficiency: formData.mileage_efficiency?.trim() || undefined,
+        engine_details: formData.engine_details?.trim() || undefined,
+        location: formData.location?.trim() || undefined,
+        rc_number: formData.rc_number?.trim() || undefined,
+        image_url: formData.image_url?.trim() || undefined
+      };
+
+      if (payload.vin && payload.vin.length < 5) {
+        setError("Chassis / VIN number must be at least 5 characters long if provided, or leave it blank to auto-generate.");
+        setSubmitting(false);
+        return;
+      }
+
+      const res = await api.post('/vehicles', payload);
       const newVehicle = res.data;
       navigate(`/vehicles/${newVehicle.registration_number || newVehicle.vin}`);
     } catch (err: any) {

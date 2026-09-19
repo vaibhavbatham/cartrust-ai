@@ -36,6 +36,14 @@ class VehicleBase(BaseModel):
     image_url: Optional[str] = None
     rc_number: Optional[str] = None
 
+    @field_validator('vin', 'variant', 'mileage_efficiency', 'engine_details', 'location', 'image_url', 'rc_number', mode='before')
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if isinstance(v, str):
+            stripped = v.strip()
+            return stripped if stripped else None
+        return v
+
 class VehicleCreate(VehicleBase):
     registration_number: str = Field(..., description="Indian vehicle registration number, e.g. MP04AB1234")
 

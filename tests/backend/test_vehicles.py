@@ -114,3 +114,45 @@ def test_add_new_vehicle_and_prevent_duplicate():
     dup_res = client.post('/api/v1/vehicles', json=payload)
     assert dup_res.status_code == 400
     assert 'already registered' in dup_res.json()['detail']
+
+def test_add_vehicle_with_empty_and_whitespace_vin():
+    import random
+    import string
+    series = ''.join(random.choices(string.ascii_uppercase, k=2))
+    num = random.randint(1000, 9999)
+    test_plate = f"GJ 01 {series} {num}"
+    norm_plate = f"GJ01{series}{num}"
+
+    # Payload with empty string vin: ""
+    payload = {
+        'registration_number': test_plate,
+        'vin': '',  # Empty string should not fail min_length=5!
+        'make': 'Tata Motors',
+        'model': 'Nexon',
+        'variant': 'XZ Plus',
+        'year': 2023,
+        'fuel_type': 'Diesel',
+        'transmission': 'Manual',
+        'current_odometer': 18000
+    }
+    res = client.post('/api/v1/vehicles', json=payload)
+    assert res.status_code == 201, f"Failed with: {res.text}"
+    data = res.json()
+    assert data['registration_number'] == norm_plate
+    assert data['vin'].startswith(f"CT-IND-{norm_plate}")
+
+    # Payload with short invalid vin should properly fail min_length validation
+    series2 = ''.join(random.choices(string.ascii_uppercase, k=2))
+    num2 = random.randint(1000, 9999)
+    payload_short = {
+        'registration_number': f"GJ 01 {series2} {num2}",
+        'vin': 'ABC',  # 3 chars, must fail min_length=5
+        'make': 'Tata Motors',
+        'model': 'Nexon',
+        'year': 2023,
+        'fuel_type': 'Diesel',
+        'transmission': 'Manual'
+    }
+    res_short = client.post('/api/v1/vehicles', json=payload_short)
+    assert res_short.status_code == 422
+
