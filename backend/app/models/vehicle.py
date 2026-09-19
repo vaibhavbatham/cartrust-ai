@@ -1,4 +1,5 @@
 import uuid
+import datetime
 from sqlalchemy import Column, String, Integer, Float, Boolean, Date, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -29,6 +30,16 @@ class Vehicle(Base):
     rc_number = Column(String(100), nullable=True)
     golden_vehicle_id = Column(String(50), index=True, nullable=True)
     created_by_id = Column(String(36), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    engine_capacity = Column(String(50), nullable=True)
+    engine_type = Column(String(100), nullable=True)
+    seating_capacity = Column(Integer, default=5, nullable=True)
+    color = Column(String(50), nullable=True)
+    body_type = Column(String(50), nullable=True)
+    description = Column(Text, nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+    is_synthetic = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
 
     ownerships = relationship('VehicleOwnership', back_populates='vehicle', cascade='all, delete-orphan')
     odometer_readings = relationship('OdometerReading', back_populates='vehicle', cascade='all, delete-orphan', order_by='OdometerReading.reading_date')

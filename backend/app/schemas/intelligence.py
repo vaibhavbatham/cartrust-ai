@@ -42,23 +42,50 @@ class VehicleCompareRequest(BaseModel):
 
 class VehicleCompareItem(BaseModel):
     vehicle_id: str
+    registration_number: Optional[str] = None
     vin: str
     make: str
     model: str
+    variant: Optional[str] = None
     year: int
+    fuel_type: Optional[str] = None
+    transmission: Optional[str] = None
+    engine_details: Optional[str] = None
+    engine_capacity: Optional[str] = None
+    engine_type: Optional[str] = None
+    seating_capacity: Optional[int] = 5
+    color: Optional[str] = None
+    body_type: Optional[str] = None
     mileage: int
-    history_coverage_pct: float
-    maintenance_evidence_rating: str
-    verified_claims_count: int
-    odometer_consistency_status: str
-    inspection_overall_result: str
-    upcoming_maintenance_count: int
-    data_conflicts_count: int
-    evidence_count: int
+    price: Optional[float] = None
+    location: Optional[str] = None
+    service_records_count: int = 0
+    repair_records_count: int = 0
+    verified_invoices_count: int = 0
+    total_maintenance_expenditure: float = 0.0
+    latest_service_date: Optional[str] = None
+    latest_odometer_reading: int = 0
+    accident_claims_count: int = 0
+    history_coverage_pct: float = 0.0
+    maintenance_evidence_rating: str = 'NONE'
+    verified_claims_count: int = 0
+    odometer_consistency_status: str = 'CONSISTENT'
+    inspection_overall_result: str = 'NO_RECORD'
+    upcoming_maintenance_count: int = 0
+    data_conflicts_count: int = 0
+    evidence_count: int = 0
+    ownership_status: str = 'FIRST'
+    ownership_count: int = 1
+    data_completeness_pct: float = 85.0
+    factual_highlights: List[str] = []
 
 class VehicleCompareResponse(BaseModel):
     comparison: List[VehicleCompareItem]
+    vehicles: Optional[List[VehicleCompareItem]] = None
     neutral_analysis: str
+    neutral_summary: Optional[str] = None
+    highlights: Optional[List[str]] = []
+    comparison_summary: Optional[Dict[str, Any]] = None
 
 class AIQueryRequest(BaseModel):
     vehicle_id: Optional[str] = None

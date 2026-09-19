@@ -8,7 +8,7 @@ from app.core.security import hash_password
 from app.models.user import User, Role, UserRole, Profile
 from app.models.vehicle import Vehicle, VehicleOwnership, VehicleSourceMapping, OdometerReading
 from app.models.provider import Provider
-from app.models.event import MaintenanceEvent, InsuranceEvent, InspectionEvent, VehicleTimeline
+from app.models.event import ServiceEvent, MaintenanceEvent, InsuranceEvent, InspectionEvent, VehicleTimeline
 from app.models.evidence import Evidence
 from app.models.quality import Alert, DataQualityIssue
 
@@ -313,6 +313,154 @@ def seed_demo_data():
             message='No verified service records found between 2019 and 2025 (>48 months unrecorded).',
             severity='HIGH',
             is_resolved=False
+        ))
+
+
+    # DEMO VEHICLE 4: Tata Nexon Fearless+ (DEMO-VIN-NX-2022-004)
+    v4 = db.query(Vehicle).filter(Vehicle.vin == 'DEMO-VIN-NX-2022-004').first()
+    if not v4:
+        v4 = Vehicle(
+            vin='DEMO-VIN-NX-2022-004',
+            registration_number='MP04NZ4422',
+            make='Tata Motors',
+            model='Nexon',
+            variant='Fearless+ Diesel AMT',
+            year=2022,
+            registration_year=2022,
+            fuel_type='Diesel',
+            transmission='Automatic',
+            current_odometer=28500,
+            ownership_status='FIRST',
+            engine_capacity='1497 cc',
+            engine_type='1.5L Turbocharged Revotorq',
+            seating_capacity=5,
+            color='Daytona Grey',
+            body_type='Compact SUV',
+            price=1180000.0,
+            location='Bhopal, Madhya Pradesh',
+            golden_vehicle_id='GOLDEN-DEMO-VIN-NX-2022-004',
+            is_synthetic=True,
+            description='Single owner Tata Nexon with comprehensive authorized Tata Motors service history and zero insurance claims.'
+        )
+        db.add(v4)
+        db.flush()
+
+        v4_odos = [
+            (10200, datetime.date(2023, 2, 15), 'AUTHORIZED_SERVICE'),
+            (19800, datetime.date(2024, 1, 20), 'AUTHORIZED_SERVICE'),
+            (28500, datetime.date(2025, 3, 10), 'AUTHORIZED_SERVICE')
+        ]
+        for val, dt, src in v4_odos:
+            db.add(OdometerReading(vehicle_id=v4.id, reading=val, reading_date=dt, source=src))
+
+        db.add(ServiceEvent(
+            vehicle_id=v4.id,
+            service_date=datetime.date(2025, 3, 10),
+            odometer_reading=28500,
+            service_type='MAINTENANCE',
+            work_performed='Periodic 30,000 km Service, Synthetic Oil & Filter Replacement',
+            labor_cost=2500.0,
+            parts_cost=6200.0,
+            total_amount=8700.0,
+            record_source='DOCUMENT_VERIFIED',
+            verification_status='VERIFIED'
+        ))
+
+        db.add(VehicleTimeline(
+            vehicle_id=v4.id,
+            event_date=datetime.date(2022, 4, 1),
+            event_type='MANUFACTURE',
+            title='Vehicle Manufactured & Onboarded',
+            description='Tata Motors Pune Plant Rollout',
+            odometer=0,
+            source='MANUFACTURER',
+            verification_status='VERIFIED',
+            confidence_score=1.0
+        ))
+        db.add(VehicleTimeline(
+            vehicle_id=v4.id,
+            event_date=datetime.date(2025, 3, 10),
+            event_type='SERVICE',
+            title='Authorized Annual Maintenance',
+            description='Recorded at 28,500 km at Tata Authorized Service Center',
+            odometer=28500,
+            source='AUTHORIZED_SERVICE',
+            verification_status='VERIFIED',
+            confidence_score=0.98
+        ))
+
+    # DEMO VEHICLE 5: Toyota Innova Crysta (DEMO-VIN-IC-2021-005)
+    v5 = db.query(Vehicle).filter(Vehicle.vin == 'DEMO-VIN-IC-2021-005').first()
+    if not v5:
+        v5 = Vehicle(
+            vin='DEMO-VIN-IC-2021-005',
+            registration_number='MH12AB9999',
+            make='Toyota',
+            model='Innova Crysta',
+            variant='2.4 ZX 7-Seater',
+            year=2021,
+            registration_year=2021,
+            fuel_type='Diesel',
+            transmission='Manual',
+            current_odometer=62000,
+            ownership_status='FIRST',
+            engine_capacity='2393 cc',
+            engine_type='2.4L 2GD-FTV Inline-4 Turbo Diesel',
+            seating_capacity=7,
+            color='Super White',
+            body_type='MUV',
+            price=2250000.0,
+            location='Pune, Maharashtra',
+            golden_vehicle_id='GOLDEN-DEMO-VIN-IC-2021-005',
+            is_synthetic=True,
+            description='Toyota Innova Crysta 2.4 ZX top-model. Flawless Toyota dealer maintenance log, 7 captain seats, impeccably maintained.'
+        )
+        db.add(v5)
+        db.flush()
+
+        v5_odos = [
+            (15000, datetime.date(2022, 3, 10), 'AUTHORIZED_SERVICE'),
+            (31000, datetime.date(2023, 4, 15), 'AUTHORIZED_SERVICE'),
+            (45000, datetime.date(2024, 2, 22), 'AUTHORIZED_SERVICE'),
+            (62000, datetime.date(2025, 5, 18), 'AUTHORIZED_SERVICE')
+        ]
+        for val, dt, src in v5_odos:
+            db.add(OdometerReading(vehicle_id=v5.id, reading=val, reading_date=dt, source=src))
+
+        db.add(ServiceEvent(
+            vehicle_id=v5.id,
+            service_date=datetime.date(2025, 5, 18),
+            odometer_reading=62000,
+            service_type='MAINTENANCE',
+            work_performed='Major 60,000 km Service, Diesel Fuel Filter, Front Brake Pads',
+            labor_cost=4200.0,
+            parts_cost=11500.0,
+            total_amount=15700.0,
+            record_source='DOCUMENT_VERIFIED',
+            verification_status='VERIFIED'
+        ))
+
+        db.add(VehicleTimeline(
+            vehicle_id=v5.id,
+            event_date=datetime.date(2021, 6, 12),
+            event_type='MANUFACTURE',
+            title='Vehicle Rollout & Registration',
+            description='Toyota Kirloskar Motor Bidadi plant',
+            odometer=0,
+            source='MANUFACTURER',
+            verification_status='VERIFIED',
+            confidence_score=1.0
+        ))
+        db.add(VehicleTimeline(
+            vehicle_id=v5.id,
+            event_date=datetime.date(2025, 5, 18),
+            event_type='SERVICE',
+            title='60,000 km Toyota Scheduled Service',
+            description='Verified maintenance at Toyota Authorized Center (Rs 15,700)',
+            odometer=62000,
+            source='AUTHORIZED_SERVICE',
+            verification_status='VERIFIED',
+            confidence_score=0.99
         ))
 
     rahul = db.query(User).filter(User.email == 'customer@cartrust.demo').first()

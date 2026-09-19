@@ -30,13 +30,20 @@ class VehicleBase(BaseModel):
     mileage_efficiency: Optional[str] = None
     current_odometer: int = Field(0, ge=0)
     engine_details: Optional[str] = None
+    engine_capacity: Optional[str] = None
+    engine_type: Optional[str] = None
+    seating_capacity: Optional[int] = 5
+    color: Optional[str] = None
+    body_type: Optional[str] = None
+    description: Optional[str] = None
     ownership_status: Optional[str] = 'FIRST'
     price: Optional[float] = None
     location: Optional[str] = None
     image_url: Optional[str] = None
     rc_number: Optional[str] = None
+    is_synthetic: Optional[bool] = False
 
-    @field_validator('vin', 'variant', 'mileage_efficiency', 'engine_details', 'location', 'image_url', 'rc_number', mode='before')
+    @field_validator('vin', 'variant', 'mileage_efficiency', 'engine_details', 'engine_capacity', 'engine_type', 'color', 'body_type', 'description', 'location', 'image_url', 'rc_number', mode='before')
     @classmethod
     def empty_str_to_none(cls, v):
         if isinstance(v, str):
@@ -61,24 +68,29 @@ class VehicleCreate(VehicleBase):
         return norm
 
 class VehicleUpdate(BaseModel):
-    registration_number: Optional[str] = None
-    registration_year: Optional[int] = None
-    mileage_efficiency: Optional[str] = None
-    engine_details: Optional[str] = None
     price: Optional[float] = None
     location: Optional[str] = None
     image_url: Optional[str] = None
-    rc_number: Optional[str] = None
+    color: Optional[str] = None
+    description: Optional[str] = None
+    mileage_efficiency: Optional[str] = None
     current_odometer: Optional[int] = None
     ownership_status: Optional[str] = None
 
 class VehicleRead(VehicleBase):
     id: str
     golden_vehicle_id: Optional[str] = None
+    created_by_id: Optional[str] = None
+    can_edit: Optional[bool] = False
+    can_delete: Optional[bool] = False
     created_at: Optional[datetime.datetime] = None
     updated_at: Optional[datetime.datetime] = None
     history_coverage_pct: Optional[float] = 0.0
     verified_evidence_count: Optional[int] = 0
+    service_records_count: Optional[int] = 0
+    repair_records_count: Optional[int] = 0
+    verified_invoices_count: Optional[int] = 0
+    claims_count: Optional[int] = 0
     open_alerts_count: Optional[int] = 0
 
     class Config:

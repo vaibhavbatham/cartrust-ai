@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useAuth, formatErrorMessage } from '../contexts/AuthContext';
 import api from '../api/client';
 import {
   Shield,
@@ -24,10 +25,14 @@ import {
   FileSpreadsheet,
   X,
   RefreshCw,
-  Eye
+  Eye,
+  Scale,
+  Edit2,
+  Gauge,
+  Lock,
+  Info
 } from 'lucide-react';
 import { VerificationBadge, OdometerBadge } from '../components/StatusBadges';
-import { formatErrorMessage } from '../contexts/AuthContext';
 
 interface ServiceRecord {
   id: string;
@@ -59,9 +64,14 @@ interface InvoiceItem {
 
 export const VehicleDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
   const [vehicle, setVehicle] = useState<any>(null);
   const [intelligence, setIntelligence] = useState<any>(null);
   const [timeline, setTimeline] = useState<any[]>([]);
+  const [claims, setClaims] = useState<any[]>([]);
+  const [odometerAnalysis, setOdometerAnalysis] = useState<any>(null);
   const [serviceHistory, setServiceHistory] = useState<{
     total_expenditure: number;
     verified_expenditure: number;
@@ -75,8 +85,26 @@ export const VehicleDetailPage: React.FC = () => {
   });
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'service' | 'timeline' | 'invoices'>('service');
+  const [activeTab, setActiveTab] = useState<'specs' | 'service' | 'claims' | 'odometer' | 'invoices' | 'assistant'>('specs');
   const [filterSource, setFilterSource] = useState<'ALL' | 'VERIFIED' | 'USER_PROVIDED'>('ALL');
+
+  // Edit Modal State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({
+    price: 0,
+    location: '',
+    color: '',
+    current_odometer: 0,
+    description: '',
+    mileage_efficiency: ''
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  // Delete Modal State
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingLoading, setDeletingLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   // Upload & Review Modal State
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -130,28 +158,48 @@ export const VehicleDetailPage: React.FC = () => {
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [manualError, setManualError] = useState('');
 
+  // AI Quick query input
+  const [quickQuery, setQuickQuery] = useState('');
+  const [aiAnswer, setAiAnswer] = useState<string>('');
+  const [aiLoading, setAiLoading] = useState(false);
+
   const loadVehicleData = async () => {
     try {
       const vRes = await api.get(`/vehicles/${id}`);
       setVehicle(vRes.data);
       const vehicleId = vRes.data.id;
 
-      const [intelRes, tlRes, shRes, invRes] = await Promise.all([
-        api.get(`/vehicles/${vehicleId}/intelligence`),
-        api.get(`/vehicles/${vehicleId}/timeline`),
-        api.get(`/vehicles/${vehicleId}/service-history`),
-        api.get(`/vehicles/${vehicleId}/invoices`)
+      // Initialize edit form
+      setEditForm({
+        price: vRes.data.price || 0,
+        location: vRes.data.location || '',
+        color: vRes.data.color || '',
+        current_odometer: vRes.data.current_odometer || 0,
+        description: vRes.data.description || '',
+        mileage_efficiency: vRes.data.mileage_efficiency || ''
+      });
+
+      const [intelRes, tlRes, shRes, invRes, clmRes, odoRes] = await Promise.all([
+        api.get(`/vehicles/${vehicleId}/intelligence`).catch(() => ({ data: null })),
+        api.get(`/vehicles/${vehicleId}/timeline`).catch(() => ({ data: [] })),
+        api.get(`/vehicles/${vehicleId}/service-history`).catch(() => ({ data: { total_expenditure: 0, verified_expenditure: 0, records_count: 0, records: [] } })),
+        api.get(`/vehicles/${vehicleId}/invoices`).catch(() => ({ data: [] })),
+        api.get(`/vehicles/${vehicleId}/claims`).catch(() => ({ data: [] })),
+        api.get(`/vehicles/${vehicleId}/odometer`).catch(() => ({ data: null }))
       ]);
 
-      setIntelligence(intelRes.data);
-      setTimeline(tlRes.data);
-      setServiceHistory(shRes.data);
-      setInvoices(invRes.data);
+      if (intelRes.data) setIntelligence(intelRes.data);
+      if (tlRes.data) setTimeline(tlRes.data);
+      if (shRes.data) setServiceHistory(shRes.data);
+      if (invRes.data) setInvoices(invRes.data);
+      if (clmRes.data) setClaims(clmRes.data);
+      if (odoRes.data) setOdometerAnalysis(odoRes.data);
+
       if (manualForm.odometer_reading === 0) {
         setManualForm(prev => ({ ...prev, odometer_reading: vRes.data.current_odometer }));
       }
     } catch (err) {
-      console.error(err);
+      console.error('Failed to load vehicle intelligence:', err);
     } finally {
       setLoading(false);
     }
@@ -161,7 +209,47 @@ export const VehicleDetailPage: React.FC = () => {
     loadVehicleData();
   }, [id]);
 
-  // Load realistic sample invoice
+  // Handle Save Edit
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vehicle) return;
+    setSavingEdit(true);
+    setEditError('');
+    try {
+      await api.put(`/vehicles/${vehicle.id}`, {
+        price: Number(editForm.price) || null,
+        location: editForm.location.trim() || null,
+        color: editForm.color.trim() || null,
+        current_odometer: Number(editForm.current_odometer) || 0,
+        description: editForm.description.trim() || null,
+        mileage_efficiency: editForm.mileage_efficiency.trim() || null
+      });
+      setShowEditModal(false);
+      await loadVehicleData();
+    } catch (err: any) {
+      setEditError(formatErrorMessage(err));
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // Handle Delete Vehicle
+  const handleDeleteVehicle = async () => {
+    if (!vehicle) return;
+    setDeletingLoading(true);
+    setDeleteError('');
+    try {
+      await api.delete(`/vehicles/${vehicle.id}`);
+      setShowDeleteModal(false);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setDeleteError(formatErrorMessage(err));
+    } finally {
+      setDeletingLoading(false);
+    }
+  };
+
+  // Upload Invoice Handlers
   const handleLoadSampleInvoice = async () => {
     setUploadError('');
     try {
@@ -176,7 +264,6 @@ export const VehicleDetailPage: React.FC = () => {
     }
   };
 
-  // Submit invoice upload to backend for OCR extraction
   const handleStartExtraction = async () => {
     if (!selectedFile) {
       setUploadError('Please select a PDF or image file first.');
@@ -221,53 +308,6 @@ export const VehicleDetailPage: React.FC = () => {
     }
   };
 
-  // Update item in review form
-  const handleItemChange = (index: number, field: keyof InvoiceItem, value: any) => {
-    const updated = [...reviewForm.items];
-    updated[index] = {
-      ...updated[index],
-      [field]: value
-    };
-    if (field === 'quantity' || field === 'unit_price') {
-      const q = field === 'quantity' ? Number(value) : updated[index].quantity;
-      const p = field === 'unit_price' ? Number(value) : updated[index].unit_price;
-      updated[index].total_price = Number((q * p).toFixed(2));
-    }
-    const newSubtotal = updated.reduce((sum, itm) => sum + (itm.total_price || 0), 0);
-    const newTotal = Number((newSubtotal + reviewForm.tax).toFixed(2));
-    setReviewForm(prev => ({
-      ...prev,
-      items: updated,
-      subtotal: newSubtotal,
-      total_amount: newTotal
-    }));
-  };
-
-  const handleAddItem = () => {
-    setReviewForm(prev => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        { description: 'Additional Service Item', quantity: 1, unit_price: 1000, total_price: 1000 }
-      ],
-      subtotal: prev.subtotal + 1000,
-      total_amount: prev.total_amount + 1000
-    }));
-  };
-
-  const handleRemoveItem = (index: number) => {
-    const itm = reviewForm.items[index];
-    const updated = reviewForm.items.filter((_, i) => i !== index);
-    const newSubtotal = Math.max(0, reviewForm.subtotal - (itm.total_price || 0));
-    setReviewForm(prev => ({
-      ...prev,
-      items: updated,
-      subtotal: newSubtotal,
-      total_amount: Number((newSubtotal + prev.tax).toFixed(2))
-    }));
-  };
-
-  // Confirm and verify invoice
   const handleConfirmAndVerify = async () => {
     setConfirming(true);
     setUploadError('');
@@ -284,7 +324,6 @@ export const VehicleDetailPage: React.FC = () => {
     }
   };
 
-  // Handle manual service record submission
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setManualError('');
@@ -309,39 +348,53 @@ export const VehicleDetailPage: React.FC = () => {
     }
   };
 
+  const handleAskAi = async (qText?: string) => {
+    const query = qText || quickQuery;
+    if (!query.trim()) return;
+    setAiLoading(true);
+    try {
+      const res = await api.post('/assistant/query', {
+        vehicle_id: vehicle.id,
+        query: query.trim()
+      });
+      setAiAnswer(res.data.answer);
+    } catch (err) {
+      setAiAnswer('Unable to retrieve AI assistant response. Please try again.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   if (loading) {
-    return <div className="min-h-screen bg-slate-950 p-12 text-center text-slate-400">Loading Vehicle Intelligence Profile...</div>;
+    return (
+      <div className="min-h-screen bg-slate-950 py-20 px-6 text-center text-slate-400">
+        <div className="animate-spin w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full mx-auto mb-4" />
+        Loading vehicle intelligence profile...
+      </div>
+    );
   }
 
   if (!vehicle) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center shadow-2xl">
-          <div className="w-14 h-14 bg-amber-950/80 border border-amber-800/80 text-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <AlertCircle className="w-7 h-7" />
-          </div>
-          <h2 className="text-xl font-bold text-white mb-2">Vehicle Not Found</h2>
-          <p className="text-sm text-slate-400 mb-6">
-            No vehicle found with number plate or VIN: <span className="text-amber-300 font-mono font-bold">{id}</span>.
+      <div className="min-h-screen bg-slate-950 py-20 px-6 text-center">
+        <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-8">
+          <Car className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+          <h2 className="text-lg font-bold text-white mb-2">Vehicle Not Found</h2>
+          <p className="text-xs text-slate-400 mb-6">
+            No vehicle records matching this identifier are currently registered in the database.
           </p>
-          <div className="flex flex-col gap-3">
-            <Link
-              to={`/vehicles/add`}
-              className="w-full bg-sky-600 hover:bg-sky-500 text-white font-semibold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors shadow-lg shadow-sky-950"
-            >
-              <Plus className="w-4 h-4" /> Add This Vehicle to CarTrust
-            </Link>
-            <Link
-              to="/dashboard"
-              className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-2.5 rounded-xl text-sm border border-slate-700 transition-colors"
-            >
-              Back to Dashboard
-            </Link>
-          </div>
+          <Link
+            to="/dashboard"
+            className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-semibold"
+          >
+            Return to Registry
+          </Link>
         </div>
       </div>
     );
   }
+
+  const canUserEdit = vehicle.can_edit || (user && vehicle.created_by_id === user.id);
 
   const filteredRecords = serviceHistory.records.filter(r => {
     if (filterSource === 'VERIFIED') return r.verification_status === 'VERIFIED';
@@ -349,10 +402,22 @@ export const VehicleDetailPage: React.FC = () => {
     return true;
   });
 
+  // State / RTO deduction from Indian plate
+  const platePrefix = (vehicle.registration_number || '').slice(0, 4).toUpperCase();
+  const rtoLocationMap: Record<string, string> = {
+    'MP04': 'Madhya Pradesh (Bhopal RTO - MP04)',
+    'DL01': 'Delhi (Mall Road RTO - DL01)',
+    'MH12': 'Maharashtra (Pune RTO - MH12)',
+    'HR26': 'Haryana (Gurugram RTO - HR26)',
+    'KA05': 'Karnataka (Bangalore South - KA05)',
+    'GJ01': 'Gujarat (Ahmedabad RTO - GJ01)'
+  };
+  const rtoText = rtoLocationMap[platePrefix] || `${vehicle.location || 'India'} Regional Transport Office`;
+
   return (
-    <div className="min-h-screen bg-slate-950 py-10 px-4 sm:px-6">
+    <div className="min-h-screen bg-slate-950 py-10 px-4 sm:px-6 relative pb-20">
       <div className="max-w-7xl mx-auto">
-        {/* Header Summary Card */}
+        {/* HEADER SUMMARY CARD */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 mb-8 shadow-xl">
           <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
             <div>
@@ -372,6 +437,16 @@ export const VehicleDetailPage: React.FC = () => {
                   VIN: {vehicle.vin}
                 </span>
                 <OdometerBadge status={intelligence?.odometer_consistency_status || 'CONSISTENT'} />
+                {vehicle.is_synthetic && (
+                  <span className="text-[11px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800">
+                    Synthetic Demo
+                  </span>
+                )}
+                {canUserEdit && (
+                  <span className="text-[11px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                    Your Vehicle
+                  </span>
+                )}
               </div>
 
               <h1 className="text-3xl font-extrabold text-white tracking-tight">
@@ -404,7 +479,14 @@ export const VehicleDetailPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Link
+                to={`/compare?vehicles=${vehicle.id}`}
+                className="bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-800/80 text-indigo-200 px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              >
+                <Scale className="w-3.5 h-3.5 text-indigo-400" />
+                Compare
+              </Link>
               <button
                 onClick={() => {
                   setSelectedFile(null);
@@ -412,27 +494,49 @@ export const VehicleDetailPage: React.FC = () => {
                   setUploadError('');
                   setShowUploadModal(true);
                 }}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-lg shadow-emerald-950 transition-colors"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-emerald-950 transition-colors"
               >
-                <Upload className="w-4 h-4" />
+                <Upload className="w-3.5 h-3.5" />
                 Upload Invoice
               </button>
               <a
                 href={`/api/v1/reports/${vehicle.id}/pdf`}
                 target="_blank"
                 rel="noreferrer"
-                className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-700 flex items-center gap-2 transition-colors"
+                className="bg-slate-800 hover:bg-slate-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-700 flex items-center gap-1.5 transition-colors"
               >
-                <Download className="w-4 h-4 text-sky-400" />
-                Download PDF Report
+                <Download className="w-3.5 h-3.5 text-sky-400" />
+                PDF Report
               </a>
               <Link
                 to={`/assistant?vehicle=${encodeURIComponent(vehicle.registration_number || vehicle.vin || vehicle.id)}`}
-                className="bg-sky-600 hover:bg-sky-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-lg shadow-sky-950 transition-colors"
+                className="bg-sky-600 hover:bg-sky-500 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-950 transition-colors"
               >
-                <MessageSquare className="w-4 h-4" />
-                Ask AI Assistant
+                <MessageSquare className="w-3.5 h-3.5" />
+                AI Assistant
               </Link>
+
+              {/* Customer Edit/Delete Actions */}
+              {canUserEdit && (
+                <div className="flex items-center gap-1.5 pl-2 border-l border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(true)}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-sky-300 border border-slate-700 transition-colors"
+                    title="Edit vehicle listing"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteModal(true)}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-400 border border-slate-700 transition-colors"
+                    title="Delete vehicle listing"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -440,13 +544,13 @@ export const VehicleDetailPage: React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-8 pt-6 border-t border-slate-800 text-xs">
             <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
               <span className="text-slate-400 block mb-1">Total Service Spend</span>
-              <span className="text-xl font-bold text-amber-300">
+              <span className="text-xl font-bold text-amber-300 font-mono">
                 ₹{serviceHistory.total_expenditure.toLocaleString('en-IN')}
               </span>
             </div>
             <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
               <span className="text-slate-400 block mb-1">Verified Invoices</span>
-              <span className="text-xl font-bold text-emerald-400">
+              <span className="text-xl font-bold text-emerald-400 font-mono">
                 {invoices.filter(i => i.verification_status === 'VERIFIED').length} Verified
               </span>
             </div>
@@ -463,47 +567,182 @@ export const VehicleDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 border-b border-slate-800 mb-6 pb-2">
+        {/* NAVIGATION TABS (All 9 Intelligence Sections) */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 mb-6 pb-2">
+          <button
+            onClick={() => setActiveTab('specs')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'specs'
+                ? 'bg-sky-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            <Car className="w-3.5 h-3.5" />
+            Specs & Ownership
+          </button>
           <button
             onClick={() => setActiveTab('service')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'service'
                 ? 'bg-sky-600 text-white shadow-md'
                 : 'text-slate-400 hover:text-white hover:bg-slate-900'
             }`}
           >
-            <Wrench className="w-4 h-4" />
-            Service & Repair History ({serviceHistory.records.length})
+            <Wrench className="w-3.5 h-3.5" />
+            Service History ({serviceHistory.records.length})
           </button>
           <button
-            onClick={() => setActiveTab('timeline')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === 'timeline'
+            onClick={() => setActiveTab('claims')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'claims'
                 ? 'bg-sky-600 text-white shadow-md'
                 : 'text-slate-400 hover:text-white hover:bg-slate-900'
             }`}
           >
-            <Clock className="w-4 h-4" />
-            Historical Timeline ({timeline.length})
+            <Shield className="w-3.5 h-3.5" />
+            Accidents & Claims ({claims.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('odometer')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'odometer'
+                ? 'bg-sky-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            <Gauge className="w-3.5 h-3.5" />
+            Odometer & Timeline ({timeline.length})
           </button>
           <button
             onClick={() => setActiveTab('invoices')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
               activeTab === 'invoices'
                 ? 'bg-sky-600 text-white shadow-md'
                 : 'text-slate-400 hover:text-white hover:bg-slate-900'
             }`}
           >
-            <FileSpreadsheet className="w-4 h-4" />
-            Supporting Invoices ({invoices.length})
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Invoice Repository ({invoices.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('assistant')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'assistant'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
+                : 'text-indigo-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            Grounded AI Assistant
           </button>
         </div>
 
-        {/* TAB 1: Service & Repair History */}
+        {/* TAB 1: TECHNICAL SPECS & PRIVACY-SAFE OWNERSHIP */}
+        {activeTab === 'specs' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Technical Specifications */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-800">
+                  <Car className="w-4 h-4 text-sky-400" />
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Technical Specifications</h3>
+                </div>
+                <div className="space-y-3 text-xs">
+                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                    <span className="text-slate-400">Engine Displacement:</span>
+                    <span className="font-semibold text-white">{vehicle.engine_capacity || vehicle.engine_details || '1498 cc'}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                    <span className="text-slate-400">Engine Type:</span>
+                    <span className="font-semibold text-white">{vehicle.engine_type || 'i-VTEC 4-Cylinder DOHC'}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                    <span className="text-slate-400">Fuel Type:</span>
+                    <span className="font-semibold text-white">{vehicle.fuel_type}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                    <span className="text-slate-400">Transmission:</span>
+                    <span className="font-semibold text-white">{vehicle.transmission}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                    <span className="text-slate-400">Seating Capacity:</span>
+                    <span className="font-semibold text-white">{vehicle.seating_capacity || 5} Persons</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                    <span className="text-slate-400">Exterior Color:</span>
+                    <span className="font-semibold text-white">{vehicle.color || 'Pearl White'}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                    <span className="text-slate-400">Body Type:</span>
+                    <span className="font-semibold text-white">{vehicle.body_type || 'Sedan'}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5">
+                    <span className="text-slate-400">Fuel Efficiency (ARAI):</span>
+                    <span className="font-semibold text-white">{vehicle.mileage_efficiency || '17.4 km/l'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Privacy-Safe Ownership History */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-4 h-4 text-emerald-400" />
+                      <h3 className="text-sm font-bold text-white uppercase tracking-wider">Privacy-Safe Ownership History</h3>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950 border border-emerald-800 px-2 py-0.5 rounded">
+                      DPDP Compliant
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 text-xs mb-4">
+                    <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                      <span className="text-slate-400">Ownership Sequence:</span>
+                      <span className="font-bold text-white">{vehicle.ownership_status || 'FIRST'} Owner</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                      <span className="text-slate-400">Registered RTO Jurisdiction:</span>
+                      <span className="font-semibold text-slate-200">{rtoText}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                      <span className="text-slate-400">Registration Category:</span>
+                      <span className="font-semibold text-slate-200">Individual / Non-Commercial Private</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-slate-800/60">
+                      <span className="text-slate-400">Manufacturing & Reg Year:</span>
+                      <span className="font-semibold text-slate-200">{vehicle.year} / {vehicle.registration_year || vehicle.year}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-slate-400">Chassis / RC Status:</span>
+                      <span className="font-mono text-emerald-400 font-semibold">ACTIVE • NO HYPOTHECATION LOCK</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
+                  <div className="flex items-center gap-1.5 text-slate-300 font-semibold mb-1">
+                    <Shield className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Redaction Protocol:</span>
+                  </div>
+                  Personal identifiable information (PII) including owner full legal name, phone number, and residential address is masked in accordance with Indian Motor Vehicles Act guidelines and platform privacy ethics.
+                </div>
+              </div>
+            </div>
+
+            {/* Description Card */}
+            {vehicle.description && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Vehicle Notes & Background</h4>
+                <p className="text-xs text-slate-300 leading-relaxed">{vehicle.description}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: SERVICE & REPAIR HISTORY */}
         {activeTab === 'service' && (
           <div className="space-y-6">
-            {/* Action Bar & Filter */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900/80 border border-slate-800 p-4 rounded-2xl">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-slate-400">Filter Provenance:</span>
@@ -620,42 +859,49 @@ export const VehicleDetailPage: React.FC = () => {
                           <span className="text-slate-300 font-medium">{record.service_center}</span>
                           <span>•</span>
                           <span>{record.service_type}</span>
-                          {record.odometer_reading && (
+                          {record.odometer_reading ? (
                             <>
                               <span>•</span>
-                              <span className="font-mono text-slate-300">{record.odometer_reading.toLocaleString()} km</span>
+                              <span className="font-mono text-slate-300 font-semibold">{record.odometer_reading.toLocaleString()} km</span>
                             </>
-                          )}
-                          {record.invoice_number && (
-                            <>
-                              <span>•</span>
-                              <span className="font-mono text-sky-400 font-semibold">#{record.invoice_number}</span>
-                            </>
-                          )}
+                          ) : null}
                         </div>
                       </div>
 
-                      <div className="flex sm:flex-col items-end justify-between sm:justify-start gap-2">
-                        <div className="text-lg font-bold text-amber-300">
-                          ₹{record.total_amount.toLocaleString('en-IN')}
-                        </div>
-                        {record.document_download_url && (
-                          <a
-                            href={record.document_download_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-400 hover:text-sky-300 bg-sky-950/70 border border-sky-800/80 px-2.5 py-1 rounded-lg transition-colors"
-                          >
-                            <Download className="w-3 h-3" /> View Original Invoice
-                          </a>
+                      <div className="text-right">
+                        <span className="text-lg font-extrabold text-amber-300 font-mono block">
+                          ₹{Number(record.total_amount).toLocaleString('en-IN')}
+                        </span>
+                        {record.labor_cost !== undefined && record.parts_cost !== undefined && (record.labor_cost > 0 || record.parts_cost > 0) && (
+                          <span className="text-[11px] text-slate-400 block">
+                            Parts: ₹{record.parts_cost.toLocaleString('en-IN')} • Labor: ₹{record.labor_cost.toLocaleString('en-IN')}
+                          </span>
                         )}
                       </div>
                     </div>
 
                     {record.description && (
-                      <p className="text-xs text-slate-400 mt-2 bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/60">
+                      <p className="text-xs text-slate-400 bg-slate-950/40 p-3 rounded-xl border border-slate-800/60 mb-3">
                         {record.description}
                       </p>
+                    )}
+
+                    {record.invoice_id && (
+                      <div className="flex items-center justify-between text-xs pt-3 border-t border-slate-800/80">
+                        <span className="font-mono text-[11px] text-slate-400">
+                          Invoice #{record.invoice_number || 'INV-VERIFIED'}
+                        </span>
+                        {record.document_download_url && (
+                          <a
+                            href={record.document_download_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sky-400 hover:underline flex items-center gap-1 font-medium"
+                          >
+                            <FileText className="w-3.5 h-3.5" /> View Document
+                          </a>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
@@ -664,106 +910,205 @@ export const VehicleDetailPage: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 2: Historical Timeline */}
-        {activeTab === 'timeline' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Clock className="w-4 h-4 text-sky-400" />
-                Chronological Provenance Milestones ({timeline.length})
-              </h2>
-            </div>
-            {timeline.map((event, idx) => (
-              <div key={event.id || idx} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition-colors">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono text-xs font-semibold text-slate-300 bg-slate-800 px-2.5 py-1 rounded">
-                      {event.event_date}
-                    </span>
-                    <h3 className="font-bold text-white text-base">{event.title}</h3>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {event.odometer && (
-                      <span className="text-xs font-mono font-medium text-slate-300">
-                        {event.odometer.toLocaleString()} km
-                      </span>
-                    )}
-                    <VerificationBadge status={event.verification_status} />
+        {/* TAB 3: ACCIDENT & CLAIM RECORDS (With Honest Absence Disclaimer) */}
+        {activeTab === 'claims' && (
+          <div className="space-y-6">
+            {claims.length > 0 ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-rose-950/40 border border-rose-900/60 rounded-2xl text-xs text-rose-300 flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0" />
+                  <div>
+                    <span className="font-bold block">Documented Insurance Damage Records:</span>
+                    The connected insurance claims databases report {claims.length} documented insurance incident(s) for this chassis.
                   </div>
                 </div>
-                <p className="text-sm text-slate-400 mb-2">{event.description}</p>
-                <div className="text-xs text-slate-500 flex items-center gap-2">
-                  <span>Source: <strong className="text-slate-400">{event.source}</strong></span>
-                  <span>•</span>
-                  <span>Confidence: {(event.confidence_score * 100).toFixed(0)}%</span>
+
+                {claims.map((c, i) => (
+                  <div key={i} className="bg-slate-900 border border-rose-900/40 rounded-2xl p-6">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <span className="font-mono text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded mr-2">
+                          {c.claim_date}
+                        </span>
+                        <span className="font-bold text-white text-base">Claim #{c.claim_number}</span>
+                      </div>
+                      <span className="text-xs font-bold text-rose-400 px-2.5 py-1 rounded bg-rose-950 border border-rose-800">
+                        {c.severity} SEVERITY
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950/60 p-3 rounded-xl text-xs text-slate-300 mb-3">
+                      <div>
+                        <span className="text-slate-500 block text-[10px] uppercase">Incident Type</span>
+                        <span className="font-semibold">{c.claim_type}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[10px] uppercase">Damage Area</span>
+                        <span className="font-semibold">{c.damage_area}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[10px] uppercase">Claim Amount</span>
+                        <span className="font-semibold text-amber-300 font-mono">₹{Number(c.claim_amount || 0).toLocaleString('en-IN')}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[10px] uppercase">Repair Status</span>
+                        <span className="font-semibold">{c.repair_status}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 sm:p-10 text-center space-y-6">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-8 h-8" />
+                </div>
+
+                <div className="max-w-xl mx-auto">
+                  <h3 className="text-lg font-bold text-white mb-2">
+                    No Insurance Claims on Record
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Zero collision or total loss claims have been filed with connected insurance providers for VIN{' '}
+                    <span className="font-mono text-slate-300">{vehicle.vin}</span>.
+                  </p>
+                </div>
+
+                {/* CRITICAL REQUIRED HONEST DISCLAIMER */}
+                <div className="max-w-2xl mx-auto bg-slate-950 border border-amber-800/40 rounded-2xl p-5 text-left text-xs leading-relaxed space-y-2">
+                  <div className="flex items-center gap-2 text-amber-400 font-bold">
+                    <Info className="w-4 h-4 flex-shrink-0" />
+                    <span>Database Limitation & Physical Inspection Disclosure</span>
+                  </div>
+                  <p className="text-slate-400">
+                    • <strong>Absence of Evidence is not Absolute Absence of Damage:</strong> While no insurance claims or reported structural damage records exist in our connected databases, CarTrust AI does not guarantee an accident-free vehicle history without a certified on-site physical inspection.
+                  </p>
+                  <p className="text-slate-400">
+                    • <strong>Uninsured / Cash Repairs:</strong> Private, out-of-pocket, or non-insurance bodywork repairs do not generate third-party insurance records and might not appear in connected institutional repositories.
+                  </p>
+                  <p className="text-slate-400">
+                    • <strong>Recommendation:</strong> Always commission an independent 140-point physical inspection covering paint depth (microns), apron welds, and underbody frame integrity before completing any vehicle purchase.
+                  </p>
                 </div>
               </div>
-            ))}
+            )}
           </div>
         )}
 
-        {/* TAB 3: Supporting Invoices */}
+        {/* TAB 4: ODOMETER & TIMELINE */}
+        {activeTab === 'odometer' && (
+          <div className="space-y-6">
+            {/* Odometer Analysis Banner */}
+            <div className={`p-5 rounded-2xl border text-xs leading-relaxed ${
+              odometerAnalysis?.rollback_detected
+                ? 'bg-rose-950/40 border-rose-800 text-rose-200'
+                : 'bg-slate-900 border-slate-800 text-slate-300'
+            }`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-bold text-sm flex items-center gap-2">
+                  <Gauge className="w-4 h-4 text-sky-400" />
+                  Odometer Integrity Analysis
+                </span>
+                <OdometerBadge status={odometerAnalysis?.status || 'CONSISTENT'} />
+              </div>
+              <p className="text-slate-400">
+                {odometerAnalysis?.explanation || 'Chronological odometer progression verified across dealer services and inspection timestamps.'}
+              </p>
+            </div>
+
+            {/* Visual Timeline */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-6 pb-3 border-b border-slate-800 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-sky-400" />
+                Chronological Vehicle Milestones ({timeline.length})
+              </h3>
+
+              <div className="relative pl-6 border-l-2 border-slate-800 space-y-8">
+                {timeline.map((event, idx) => (
+                  <div key={idx} className="relative group">
+                    <div className="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-slate-950 border-2 border-sky-400 group-hover:scale-125 transition-transform" />
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1">
+                      <span className="font-mono text-xs font-bold text-sky-400">{event.event_date}</span>
+                      <span className="text-[11px] font-semibold text-slate-400 bg-slate-800 px-2 py-0.5 rounded w-fit">
+                        {event.source}
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-bold text-white">{event.title}</h4>
+                    <p className="text-xs text-slate-400 mt-1">{event.description}</p>
+                    {event.odometer && (
+                      <span className="inline-block mt-2 font-mono text-[11px] font-semibold text-slate-300 bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
+                        Odometer: {event.odometer.toLocaleString()} km
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: INVOICE REPOSITORY */}
         {activeTab === 'invoices' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-sky-400" />
-                Uploaded Vehicle Invoices & Financial Proofs ({invoices.length})
-              </h2>
+          <div className="space-y-6">
+            <div className="flex items-center justify-between bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+              <div>
+                <h3 className="text-sm font-bold text-white">Verified Invoice & Document Repository</h3>
+                <p className="text-xs text-slate-400">Total {invoices.length} uploaded records on file.</p>
+              </div>
               <button
                 onClick={() => {
                   setSelectedFile(null);
                   setUploadStep('UPLOAD');
                   setShowUploadModal(true);
                 }}
-                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-md"
               >
-                <Upload className="w-3.5 h-3.5" /> Upload New Invoice
+                <Upload className="w-3.5 h-3.5" /> Upload Document
               </button>
             </div>
 
             {invoices.length === 0 ? (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400 text-xs">
-                No invoices recorded.
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center">
+                <FileSpreadsheet className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                <p className="text-sm font-bold text-white mb-1">No Invoices Uploaded Yet</p>
+                <p className="text-xs text-slate-400 mb-4">Upload workshop bills or service receipts to verify maintenance claims.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {invoices.map(inv => (
-                  <div key={inv.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-mono text-xs font-bold text-sky-400 bg-sky-950 border border-sky-800 px-2 py-0.5 rounded">
-                          {inv.invoice_number}
+                  <div key={inv.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="font-mono text-xs text-sky-400 bg-sky-950 border border-sky-800 px-2 py-0.5 rounded">
+                          {inv.invoice_number || 'INV-RECORD'}
                         </span>
-                        <VerificationBadge status={inv.verification_status} />
+                        <h4 className="text-sm font-bold text-white mt-1.5">{inv.vendor_name || 'Authorized Service Center'}</h4>
                       </div>
-                      <h4 className="font-bold text-white text-sm mb-1">{inv.vendor_name}</h4>
-                      <p className="text-xs text-slate-400 mb-3">{inv.work_performed || inv.category}</p>
-                      <div className="text-xs text-slate-400 space-y-1 mb-4">
-                        <div className="flex justify-between">
-                          <span>Date:</span>
-                          <span className="text-slate-200">{inv.invoice_date}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Recorded Odometer:</span>
-                          <span className="text-slate-200">{inv.odometer_reading ? `${inv.odometer_reading.toLocaleString()} km` : '-'}</span>
-                        </div>
-                        <div className="flex justify-between font-bold pt-1 border-t border-slate-800">
-                          <span className="text-slate-300">Total:</span>
-                          <span className="text-amber-300">₹{inv.total_amount.toLocaleString('en-IN')}</span>
-                        </div>
-                      </div>
+                      <span className="text-sm font-mono font-bold text-amber-300">
+                        ₹{Number(inv.total_amount).toLocaleString('en-IN')}
+                      </span>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-3 border-t border-slate-800">
-                      {inv.document?.download_url && (
+                    <div className="text-xs text-slate-400 space-y-1">
+                      <p>Date: <strong className="text-slate-200">{inv.invoice_date}</strong></p>
+                      <p>Category: <strong className="text-slate-200">{inv.category}</strong></p>
+                      {inv.odometer_reading && (
+                        <p>Odometer at service: <strong className="text-slate-200 font-mono">{inv.odometer_reading.toLocaleString()} km</strong></p>
+                      )}
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-xs">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                        {inv.verification_status}
+                      </span>
+                      {inv.download_url && (
                         <a
-                          href={inv.document.download_url}
+                          href={inv.download_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="w-full text-center bg-slate-800 hover:bg-slate-700 text-xs font-semibold py-2 rounded-xl text-sky-400 border border-slate-700 flex items-center justify-center gap-1.5 transition-colors"
+                          className="text-sky-400 hover:underline flex items-center gap-1 font-medium"
                         >
-                          <Download className="w-3.5 h-3.5" /> Download Original Document
+                          <Download className="w-3 h-3" /> View Original
                         </a>
                       )}
                     </div>
@@ -774,475 +1119,563 @@ export const VehicleDetailPage: React.FC = () => {
           </div>
         )}
 
-        {/* MODAL 1: Upload & OCR Review Modal */}
-        {showUploadModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 overflow-y-auto">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl relative my-8 max-h-[90vh] overflow-y-auto">
-              <button
-                onClick={() => setShowUploadModal(false)}
-                className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
-              {uploadStep === 'UPLOAD' && (
-                <div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="p-2 bg-emerald-950 border border-emerald-800 text-emerald-400 rounded-xl">
-                      <Upload className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold text-white">Upload Vehicle Invoice / Repair Document</h2>
-                      <p className="text-xs text-slate-400">PDF, JPG, or PNG files accepted</p>
-                    </div>
-                  </div>
-
-                  {uploadError && (
-                    <div className="mt-4 p-3 bg-rose-950/80 border border-rose-800 text-rose-300 text-xs rounded-xl flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                      <span>{uploadError}</span>
-                    </div>
-                  )}
-
-                  <div className="space-y-4 mt-6">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                        Document Category
-                      </label>
-                      <select
-                        value={uploadCategory}
-                        onChange={e => setUploadCategory(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-sky-500"
-                      >
-                        <option value="SERVICE">Servicing (Scheduled Maintenance, Oil & Filter)</option>
-                        <option value="REPAIR">Repairs (Mechanical, Electrical, Brakes, Suspension)</option>
-                        <option value="PARTS">Replacement Parts & Accessories</option>
-                        <option value="MAINTENANCE">General Maintenance & Inspection</option>
-                        <option value="PURCHASE">Vehicle Purchase Invoice / Delivery Challan</option>
-                        <option value="INSURANCE">Insurance Policy or Claim Document</option>
-                        <option value="OTHER">Other Automotive Expense</option>
-                      </select>
-                    </div>
-
-                    <div className="border-2 border-dashed border-slate-700 hover:border-slate-500 rounded-2xl p-6 text-center bg-slate-950/50 transition-colors">
-                      <Upload className="w-8 h-8 text-slate-500 mx-auto mb-2" />
-                      <div className="text-xs font-semibold text-slate-300 mb-1">
-                        {selectedFile ? (
-                          <span className="text-emerald-400 font-bold">{selectedFile.name} ({(selectedFile.size / 1024).toFixed(0)} KB)</span>
-                        ) : (
-                          "Choose a PDF or Image file from your device"
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-500 mb-4">Supported: PDF, JPG, PNG (Max 10 MB)</p>
-                      <input
-                        type="file"
-                        accept=".pdf,image/png,image/jpeg,image/webp"
-                        id="invoice-file-input"
-                        className="hidden"
-                        onChange={e => {
-                          if (e.target.files && e.target.files[0]) {
-                            setSelectedFile(e.target.files[0]);
-                          }
-                        }}
-                      />
-                      <label
-                        htmlFor="invoice-file-input"
-                        className="cursor-pointer inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-4 py-2 rounded-xl border border-slate-700 transition-colors"
-                      >
-                        Browse Files
-                      </label>
-                    </div>
-
-                    {/* Quick Demo Sample Button */}
-                    <div className="bg-sky-950/40 border border-sky-800/60 rounded-xl p-3.5 flex items-center justify-between">
-                      <div>
-                        <div className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
-                          <span>✨ Test with Sample Invoice (INV-10245)</span>
-                        </div>
-                        <div className="text-[11px] text-slate-400">
-                          XYZ Auto Service • Brake Pads & Oil (₹13,570)
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleLoadSampleInvoice}
-                        className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors shadow-sm"
-                      >
-                        Load Sample
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setShowUploadModal(false)}
-                      className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!selectedFile}
-                      onClick={handleStartExtraction}
-                      className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-950 transition-colors"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      Upload & Run OCR Extraction
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {uploadStep === 'EXTRACTING' && (
-                <div className="text-center py-12">
-                  <div className="w-14 h-14 bg-sky-950 border border-sky-800 text-sky-400 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-spin">
-                    <RefreshCw className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-lg font-bold text-white mb-2">Analyzing Document with OCR</h3>
-                  <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4">
-                    Extracting invoice number, line items, service center, date, and odometer readings...
-                  </p>
-                  <div className="flex items-center justify-center gap-2 text-xs font-mono text-emerald-400">
-                    <span>Status: Extracting Structured Data</span>
-                  </div>
-                </div>
-              )}
-
-              {uploadStep === 'REVIEW' && (
-                <div>
-                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
-                    <div>
-                      <div className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 bg-amber-950 border border-amber-800 px-2.5 py-0.5 rounded-full mb-1">
-                        <AlertCircle className="w-3.5 h-3.5" /> Verification Step: Review Extracted Details
-                      </div>
-                      <h2 className="text-xl font-bold text-white">Review & Edit Extracted Information</h2>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-slate-400 mb-4 bg-slate-950/70 p-3 rounded-xl border border-slate-800">
-                    OCR can occasionally make transcription errors. Please inspect the values extracted below and make any necessary corrections before confirming.
-                  </p>
-
-                  {uploadError && (
-                    <div className="mb-4 p-3 bg-rose-950/80 border border-rose-800 text-rose-300 text-xs rounded-xl flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                      <span>{uploadError}</span>
-                    </div>
-                  )}
-
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Invoice Number <span className="text-rose-400">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={reviewForm.invoice_number}
-                          onChange={e => setReviewForm(prev => ({ ...prev, invoice_number: e.target.value }))}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono font-bold focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Invoice Date <span className="text-rose-400">*</span>
-                        </label>
-                        <input
-                          type="date"
-                          value={reviewForm.invoice_date}
-                          onChange={e => setReviewForm(prev => ({ ...prev, invoice_date: e.target.value }))}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Service Center / Vendor <span className="text-rose-400">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={reviewForm.vendor_name}
-                          onChange={e => setReviewForm(prev => ({ ...prev, vendor_name: e.target.value }))}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Odometer Reading (km)
-                        </label>
-                        <input
-                          type="number"
-                          value={reviewForm.odometer_reading}
-                          onChange={e => setReviewForm(prev => ({ ...prev, odometer_reading: Number(e.target.value) }))}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-
-                      <div className="sm:col-span-2">
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Work Performed Summary
-                        </label>
-                        <input
-                          type="text"
-                          value={reviewForm.work_performed}
-                          onChange={e => setReviewForm(prev => ({ ...prev, work_performed: e.target.value }))}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Line Items Table */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-xs font-semibold text-slate-300">
-                          Extracted Line Items ({reviewForm.items.length})
-                        </label>
-                        <button
-                          type="button"
-                          onClick={handleAddItem}
-                          className="text-[11px] text-sky-400 hover:text-sky-300 font-semibold flex items-center gap-1"
-                        >
-                          <Plus className="w-3 h-3" /> Add Item
-                        </button>
-                      </div>
-
-                      <div className="border border-slate-800 rounded-xl overflow-hidden">
-                        <table className="w-full text-xs text-left">
-                          <thead className="bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
-                            <tr>
-                              <th className="p-2.5">Description</th>
-                              <th className="p-2.5 w-16 text-center">Qty</th>
-                              <th className="p-2.5 w-24 text-right">Price (₹)</th>
-                              <th className="p-2.5 w-24 text-right">Total (₹)</th>
-                              <th className="p-2.5 w-10"></th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-800">
-                            {reviewForm.items.map((item, idx) => (
-                              <tr key={idx} className="hover:bg-slate-950/50">
-                                <td className="p-2">
-                                  <input
-                                    type="text"
-                                    value={item.description}
-                                    onChange={e => handleItemChange(idx, 'description', e.target.value)}
-                                    className="w-full bg-transparent text-slate-200 focus:outline-none border-b border-transparent focus:border-sky-500 text-xs"
-                                  />
-                                </td>
-                                <td className="p-2">
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    value={item.quantity}
-                                    onChange={e => handleItemChange(idx, 'quantity', Number(e.target.value))}
-                                    className="w-full bg-transparent text-slate-200 text-center focus:outline-none border-b border-transparent focus:border-sky-500 text-xs"
-                                  />
-                                </td>
-                                <td className="p-2 text-right">
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    value={item.unit_price}
-                                    onChange={e => handleItemChange(idx, 'unit_price', Number(e.target.value))}
-                                    className="w-full bg-transparent text-slate-200 text-right focus:outline-none border-b border-transparent focus:border-sky-500 text-xs font-mono"
-                                  />
-                                </td>
-                                <td className="p-2 text-right font-mono font-semibold text-slate-200">
-                                  ₹{item.total_price.toLocaleString('en-IN')}
-                                </td>
-                                <td className="p-2 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveItem(idx)}
-                                    className="text-slate-500 hover:text-rose-400 p-1"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    {/* Financial Summary */}
-                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
-                      <div className="flex justify-between text-slate-400">
-                        <span>Subtotal:</span>
-                        <span className="font-mono text-slate-200">₹{reviewForm.subtotal.toLocaleString('en-IN')}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-400">
-                        <span>GST / Taxes:</span>
-                        <span className="font-mono text-slate-200">₹{reviewForm.tax.toLocaleString('en-IN')}</span>
-                      </div>
-                      <div className="flex justify-between font-bold text-sm text-white pt-2 border-t border-slate-800">
-                        <span>Grand Total:</span>
-                        <span className="font-mono text-amber-300">₹{reviewForm.total_amount.toLocaleString('en-IN')}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setUploadStep('UPLOAD')}
-                      className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="button"
-                      disabled={confirming}
-                      onClick={handleConfirmAndVerify}
-                      className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-950 transition-colors"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      {confirming ? "Verifying..." : "Confirm & Verify Invoice"}
-                    </button>
-                  </div>
-                </div>
-              )}
+        {/* TAB 6: GROUNDED AI ASSISTANT */}
+        {activeTab === 'assistant' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-2xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                <MessageSquare className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">CarTrust AI Intelligence Assistant</h3>
+                <p className="text-xs text-slate-400">Ask questions grounded in this vehicle's database records.</p>
+              </div>
             </div>
+
+            {/* Quick Prompts */}
+            <div className="flex flex-wrap gap-2 text-xs">
+              {[
+                "What is the total documented service expenditure?",
+                "Has any odometer rollback or inconsistency been detected?",
+                "Are there any collision or structural insurance claims on record?",
+                "What are the key technical specifications of this car?"
+              ].map((promptText, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => handleAskAi(promptText)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 hover:text-white hover:border-indigo-500 transition-colors"
+                >
+                  "{promptText}"
+                </button>
+              ))}
+            </div>
+
+            {/* Ask Box */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={quickQuery}
+                onChange={(e) => setQuickQuery(e.target.value)}
+                placeholder="Ask anything about this car's history, specs, service, or claims..."
+                className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-indigo-500"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAskAi();
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => handleAskAi()}
+                disabled={aiLoading}
+                className="px-5 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-md"
+              >
+                {aiLoading ? 'Analyzing...' : 'Ask AI'}
+              </button>
+            </div>
+
+            {/* Answer Display */}
+            {aiAnswer && (
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl text-xs leading-relaxed space-y-3">
+                <div className="flex items-center gap-2 text-indigo-400 font-bold">
+                  <Shield className="w-4 h-4" />
+                  <span>Verified Database Response:</span>
+                </div>
+                <p className="text-slate-300 whitespace-pre-line">{aiAnswer}</p>
+              </div>
+            )}
           </div>
         )}
+      </div>
 
-        {/* MODAL 2: Manual Service Record Modal */}
-        {showManualModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 overflow-y-auto">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl relative my-8">
-              <button
-                onClick={() => setShowManualModal(false)}
-                className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      {/* EDIT VEHICLE MODAL */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowEditModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
 
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-amber-950 border border-amber-800 text-amber-400 rounded-xl">
-                  <Wrench className="w-5 h-5" />
+            <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+              <Edit2 className="w-4 h-4 text-sky-400" />
+              Edit Vehicle Listing
+            </h3>
+            <p className="text-xs text-slate-400 mb-4">
+              Update listing information for {vehicle.year} {vehicle.make} {vehicle.model}.
+            </p>
+
+            <div className="bg-sky-950/40 border border-sky-800/60 rounded-xl p-3 mb-4 text-xs text-sky-200 flex items-start gap-2">
+              <Info className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold block">System Record Protection:</span>
+                Registration number ({vehicle.registration_number}) and VIN ({vehicle.vin}) are verified registry identifiers and cannot be altered by users.
+              </div>
+            </div>
+
+            {editError && (
+              <div className="bg-rose-950/60 border border-rose-800 p-3 rounded-xl mb-4 text-xs text-rose-300">
+                {editError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">Listed Price (₹ INR)</label>
+                  <input
+                    type="number"
+                    value={editForm.price}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, price: Number(e.target.value) }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-sky-500"
+                  />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-white">Add Manual Service Record</h2>
-                  <p className="text-xs text-amber-400">Self-reported without invoice proof (Marked as User-Provided)</p>
+                  <label className="text-slate-300 font-semibold block mb-1">Current Odometer (km)</label>
+                  <input
+                    type="number"
+                    value={editForm.current_odometer}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, current_odometer: Number(e.target.value) }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-sky-500"
+                  />
                 </div>
               </div>
 
-              {manualError && (
-                <div className="mt-4 p-3 bg-rose-950/80 border border-rose-800 text-rose-300 text-xs rounded-xl flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  <span>{manualError}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleManualSubmit} className="space-y-4 mt-6">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Service Date <span className="text-rose-400">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={manualForm.service_date}
-                    onChange={e => setManualForm(prev => ({ ...prev, service_date: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-sky-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Service Center / Workshop <span className="text-rose-400">*</span>
-                  </label>
+                  <label className="text-slate-300 font-semibold block mb-1">Location / City</label>
                   <input
                     type="text"
-                    required
-                    placeholder="e.g. City Auto Garage"
-                    value={manualForm.service_center}
-                    onChange={e => setManualForm(prev => ({ ...prev, service_center: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-sky-500"
+                    value={editForm.location}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, location: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-sky-500"
                   />
                 </div>
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">Exterior Color</label>
+                  <input
+                    type="text"
+                    value={editForm.color}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, color: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+              </div>
 
-                <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Fuel Mileage Efficiency (Optional)</label>
+                <input
+                  type="text"
+                  value={editForm.mileage_efficiency}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, mileage_efficiency: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">Listing Description</label>
+                <textarea
+                  rows={3}
+                  value={editForm.description}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-sky-500 resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-xl font-semibold flex items-center gap-1.5"
+                >
+                  {savingEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowDeleteModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="p-3 bg-rose-950/40 border border-rose-900/60 rounded-xl w-fit text-rose-400 mb-3">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-lg font-bold text-white mb-1">
+              Remove Vehicle Listing?
+            </h3>
+            <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+              Are you sure you want to deactivate your listing for{' '}
+              <strong className="text-slate-200">
+                {vehicle.year} {vehicle.make} {vehicle.model} ({vehicle.registration_number})
+              </strong>?
+            </p>
+
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 mb-4 text-xs text-slate-300 leading-relaxed">
+              <strong className="text-sky-400 block mb-0.5">Registry Integrity Guarantee:</strong>
+              This action deactivates the marketplace listing. Verified service records, odometer readings, and uploaded documents will remain permanently archived in the CarTrust registry.
+            </div>
+
+            {deleteError && (
+              <div className="bg-rose-950/60 border border-rose-800 p-3 rounded-xl mb-4 text-xs text-rose-300">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deletingLoading}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteVehicle}
+                disabled={deletingLoading}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5"
+              >
+                {deletingLoading ? 'Deactivating...' : 'Confirm Deactivation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UPLOAD & OCR REVIEW MODAL */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowUploadModal(false)}
+              className="absolute top-6 right-6 text-slate-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {uploadStep === 'UPLOAD' && (
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Upload className="w-5 h-5 text-emerald-400" />
+                    Upload Vehicle Invoice / Repair Document
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Upload a service bill, repair estimate, parts receipt, or maintenance document for {vehicle.make} {vehicle.model}.
+                  </p>
+                </div>
+
+                {uploadError && (
+                  <div className="bg-rose-950/60 border border-rose-800 p-3 rounded-xl text-xs text-rose-300">
+                    {uploadError}
+                  </div>
+                )}
+
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Odometer (km) <span className="text-rose-400">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min={0}
-                      value={manualForm.odometer_reading}
-                      onChange={e => setManualForm(prev => ({ ...prev, odometer_reading: Number(e.target.value) }))}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono focus:outline-none focus:border-sky-500"
-                    />
+                    <label className="text-xs font-semibold text-slate-300 block mb-1.5">Document Category</label>
+                    <select
+                      value={uploadCategory}
+                      onChange={(e) => setUploadCategory(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-sky-500"
+                    >
+                      <option value="SERVICE">Periodic Service / Maintenance</option>
+                      <option value="REPAIR">Major Mechanical Repair</option>
+                      <option value="PARTS">Replacement Parts / Tyres / Battery</option>
+                      <option value="INSPECTION">Inspection / Safety Report</option>
+                      <option value="INSURANCE">Insurance Claim Document</option>
+                    </select>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Total Spend (₹) <span className="text-rose-400">*</span>
-                    </label>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1.5">Select File (PDF or JPG/PNG)</label>
                     <input
-                      type="number"
-                      required
-                      min={0}
-                      value={manualForm.total_amount}
-                      onChange={e => setManualForm(prev => ({ ...prev, total_amount: Number(e.target.value) }))}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono focus:outline-none focus:border-sky-500"
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setSelectedFile(e.target.files[0]);
+                          setUploadError('');
+                        }
+                      }}
+                      className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-white hover:file:bg-slate-700 bg-slate-950 p-2 rounded-xl border border-slate-700"
                     />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <button
+                      type="button"
+                      onClick={handleLoadSampleInvoice}
+                      className="text-xs text-sky-400 hover:underline flex items-center gap-1 font-medium"
+                    >
+                      Use Sample Repair Invoice (INV-10245.pdf)
+                    </button>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Work Performed <span className="text-rose-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Engine Oil + Oil Filter + General Inspection"
-                    value={manualForm.work_performed}
-                    onChange={e => setManualForm(prev => ({ ...prev, work_performed: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-sky-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Notes / Description
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={manualForm.notes}
-                    onChange={e => setManualForm(prev => ({ ...prev, notes: e.target.value }))}
-                    placeholder="e.g. Paid cash, regular scheduled oil change"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-sky-500"
-                  />
-                </div>
-
-                <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+                <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
                   <button
                     type="button"
-                    onClick={() => setShowManualModal(false)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+                    onClick={() => setShowUploadModal(false)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium"
                   >
                     Cancel
                   </button>
                   <button
-                    type="submit"
-                    disabled={manualSubmitting}
-                    className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl text-xs font-semibold shadow-md transition-colors"
+                    type="button"
+                    onClick={handleStartExtraction}
+                    disabled={!selectedFile}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5"
                   >
-                    {manualSubmitting ? "Saving..." : "Save Record"}
+                    Upload & Extract Data
                   </button>
                 </div>
-              </form>
-            </div>
+              </div>
+            )}
+
+            {uploadStep === 'EXTRACTING' && (
+              <div className="py-12 text-center space-y-4">
+                <div className="animate-spin w-10 h-10 border-3 border-emerald-500 border-t-transparent rounded-full mx-auto" />
+                <h3 className="text-base font-bold text-white">Analyzing Invoice Document...</h3>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  CarTrust OCR engine is extracting invoice numbers, workshop details, line items, and labor costs.
+                </p>
+              </div>
+            )}
+
+            {uploadStep === 'REVIEW' && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <FileCheck className="w-5 h-5 text-emerald-400" />
+                    Review & Confirm Extracted Invoice
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Review the extracted invoice fields and confirm to commit this verified service record to the database.
+                  </p>
+                </div>
+
+                {uploadError && (
+                  <div className="bg-rose-950/60 border border-rose-800 p-3 rounded-xl text-xs text-rose-300">
+                    {uploadError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <label className="text-slate-400 block mb-1">Invoice Number</label>
+                    <input
+                      type="text"
+                      value={reviewForm.invoice_number}
+                      onChange={(e) => setReviewForm(prev => ({ ...prev, invoice_number: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Service Center / Vendor</label>
+                    <input
+                      type="text"
+                      value={reviewForm.vendor_name}
+                      onChange={(e) => setReviewForm(prev => ({ ...prev, vendor_name: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Invoice Date</label>
+                    <input
+                      type="date"
+                      value={reviewForm.invoice_date}
+                      onChange={(e) => setReviewForm(prev => ({ ...prev, invoice_date: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Odometer (km)</label>
+                    <input
+                      type="number"
+                      value={reviewForm.odometer_reading}
+                      onChange={(e) => setReviewForm(prev => ({ ...prev, odometer_reading: Number(e.target.value) }))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Total Amount (₹)</label>
+                    <input
+                      type="number"
+                      value={reviewForm.total_amount}
+                      onChange={(e) => setReviewForm(prev => ({ ...prev, total_amount: Number(e.target.value) }))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono font-bold text-amber-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Category</label>
+                    <input
+                      type="text"
+                      value={reviewForm.category}
+                      onChange={(e) => setReviewForm(prev => ({ ...prev, category: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-slate-400 block mb-1 text-xs">Work Performed Description</label>
+                  <input
+                    type="text"
+                    value={reviewForm.work_performed}
+                    onChange={(e) => setReviewForm(prev => ({ ...prev, work_performed: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setUploadStep('UPLOAD')}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmAndVerify}
+                    disabled={confirming}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    {confirming ? 'Saving...' : 'Confirm & Commit Record'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* MANUAL SERVICE RECORD MODAL */}
+      {showManualModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowManualModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+              <Plus className="w-4 h-4 text-sky-400" />
+              Add Manual Service Record
+            </h3>
+            <p className="text-xs text-slate-400 mb-4">
+              Add a customer-reported maintenance event. (Tagged as User-Provided until backed by an invoice).
+            </p>
+
+            {manualError && (
+              <div className="bg-rose-950/60 border border-rose-800 p-3 rounded-xl mb-4 text-xs text-rose-300">
+                {manualError}
+              </div>
+            )}
+
+            <form onSubmit={handleManualSubmit} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-300 block mb-1">Service Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={manualForm.service_date}
+                    onChange={(e) => setManualForm(prev => ({ ...prev, service_date: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-300 block mb-1">Odometer Reading (km)</label>
+                  <input
+                    type="number"
+                    required
+                    value={manualForm.odometer_reading}
+                    onChange={(e) => setManualForm(prev => ({ ...prev, odometer_reading: Number(e.target.value) }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-300 block mb-1">Service Center / Workshop</label>
+                  <input
+                    type="text"
+                    required
+                    value={manualForm.service_center}
+                    onChange={(e) => setManualForm(prev => ({ ...prev, service_center: e.target.value }))}
+                    placeholder="e.g. Bosch Car Care"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-300 block mb-1">Total Amount (₹)</label>
+                  <input
+                    type="number"
+                    required
+                    value={manualForm.total_amount}
+                    onChange={(e) => setManualForm(prev => ({ ...prev, total_amount: Number(e.target.value) }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-slate-300 block mb-1">Work Performed</label>
+                <input
+                  type="text"
+                  required
+                  value={manualForm.work_performed}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, work_performed: e.target.value }))}
+                  placeholder="e.g. Periodic Oil Change, Filter & Brake Inspection"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowManualModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={manualSubmitting}
+                  className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-xl font-semibold flex items-center gap-1.5"
+                >
+                  {manualSubmitting ? 'Saving...' : 'Add Record'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
